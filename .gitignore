@@ -1,0 +1,12 @@
+node_modules/
+controller-Old/
+routesOld/
+.env
+.envLive
+package-lock.json
+Plusx-Driver-Admin-V10-18-Feb.zip
+logs/
+*.log
+dist/
+build/
+public/

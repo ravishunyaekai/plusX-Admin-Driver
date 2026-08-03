@@ -24,6 +24,7 @@ const corsOptions = {
         'http://192.168.1.23:1116',
         'http://localhost:3000',
         'http://localhost:3001',
+        'http://localhost:8802',
     ],
     // origin : "*",
     methods: 'GET, POST, PUT, DELETE',

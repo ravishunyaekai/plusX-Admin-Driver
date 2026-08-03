@@ -19,6 +19,11 @@ const RSA_OFFLINE_STATUS_MAP = {
     'COMPLETED' : 'PU',
 };
 
+// const RSA_OFFLINE_STATUS_LABEL = {
+//     CNF : 'confirmed',
+//     PU  : 'completed',
+// };
+
 const RSA_OFFLINE_BOOKING_TABLE = 'rsa_offline_booking';
 const RSA_OFFLINE_HISTORY_TABLE = 'rsa_offline_order_history';
 const RSA_OFFLINE_INVOICE_TABLE = 'rsa_offline_invoice';
@@ -28,7 +33,17 @@ const RSA_OFFLINE_INVOICE_TABLE = 'rsa_offline_invoice';
 const buildOfflineRequestId = (rowId) => `RA-${String(rowId).padStart(3, '0')}`;
 const buildOfflineInvoiceId = (rowId) => `RAINV-${String(rowId).padStart(2, '0')}`;
 
-const toBooleanFlag = (value) => ([true, 1, '1', 'true', 'yes', 'Yes', 'YES'].includes(value) ? 1 : 0);
+const toYesNo = (value) => ([true, 1, '1', 'true', 'yes', 'Yes', 'YES'].includes(value) ? 'Yes' : 'No');
+
+// Look up an existing rider by mobile. Never create a rider for offline bookings.
+const findRiderIdByMobile = async (mobile, connection = null) => {
+    const rider = await queryDB(
+        `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
+        [mobile],
+        connection
+    );
+    return rider?.rider_id || null;
+};
 
 const parsePriceDetails = (value) => {
     if (!value) return {};
@@ -38,44 +53,6 @@ const parsePriceDetails = (value) => {
     } catch {
         return {};
     }
-};
-
-const getNextRiderId = async (connection = null) => {
-    const row = await queryDB(
-        `SELECT MAX(CAST(SUBSTRING(rider_id, 3) AS UNSIGNED)) AS last_num
-         FROM riders
-         WHERE rider_id REGEXP '^ER[0-9]+$'`,
-        [],
-        connection
-    );
-    const lastNum = Number(row?.last_num) || 0;
-    const nextNum = lastNum + 1;
-    const rider_id = `ER${String(nextNum).padStart(4, '0')}`;
-    return rider_id;
-};
-
-const resolveRiderByMobile = async ({ name, email, country_code, mobile }, connection = null) => {
-    const rider = await queryDB(
-        `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
-        [mobile],
-        connection
-    );
-
-    if (rider?.rider_id) {
-        return { rider_id: rider.rider_id, isNewRider: false };
-    }
-
-    const rider_id = await getNextRiderId(connection);
-    const insert = await insertRecord('riders',
-        ['rider_id', 'rider_name', 'rider_email', 'country_code', 'rider_mobile', 'added_from', 'status'],
-        [rider_id, name, email, country_code, mobile, 'Offline', '1'],
-        connection
-    );
-    if (!insert.affectedRows) {
-        throw new Error('Failed to create rider for offline RSA booking');
-    }
-
-    return { rider_id, isNewRider: true };
 };
 
 /* RA Booking */
@@ -221,12 +198,12 @@ export const offlineRSABookingData = asyncHandler(async (req, resp) => {
         const booking = await queryDB(`
             SELECT
                 b.request_id, b.rider_id, ${formatDateTimeInQuery(['b.created_at'])},
-                b.name, b.country_code, b.contact_no, b.order_status, b.pickup_address,
-                b.location_link, b.driver_name, b.vehicle_data,
-                b.current_percent AS battery_level,
-                JSON_UNQUOTE(JSON_EXTRACT(b.types_of_issue, '$.jump_start_required')) AS jump_start_required,
-                ROUND(b.price/100, 2) AS price,
-                (SELECT r.rider_email FROM riders AS r WHERE r.rider_id = b.rider_id LIMIT 1) AS email,
+                b.customer_name AS name, b.mobile_no AS contact_no, b.email_id AS email,
+                b.order_status, b.address AS pickup_address, b.location_link,
+                b.vehicle_data, b.battery_level, b.jump_start_required,
+                b.price, b.booking_price,
+                (SELECT h.driver_name FROM ${RSA_OFFLINE_HISTORY_TABLE} AS h
+                    WHERE h.order_id = b.request_id ORDER BY h.id DESC LIMIT 1) AS driver_name,
                 inv.invoice_id,
                 COALESCE(b.payment_status, inv.payment_status) AS payment_status,
                 COALESCE(b.transaction_id, inv.transaction_id) AS transaction_id
@@ -294,8 +271,10 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
     }
 
     if (start_date && end_date) {
-        const start = moment(start_date, "YYYY-MM-DD").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
-        const end   = moment(end_date, "YYYY-MM-DD").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
+        // Same window as the online bookingList: start of day minus the 4-hour UTC offset,
+        // and end of day (23:59:59 Gulf time = 19:59:59 UTC) so bookings on end_date are included.
+        const start = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
+        const end   = moment(end_date, "YYYY-MM-DD").format("YYYY-MM-DD") + ' 19:59:59';
 
         whereFields.push('created_at', 'created_at');
         whereValues.push(start, end);
@@ -304,12 +283,13 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
 
     const result = await getPaginatedData({
         tableName : RSA_OFFLINE_BOOKING_TABLE,
-        columns   : `request_id, rider_id, name, country_code, contact_no, pickup_address, location_link,
-            vehicle_data, current_percent AS battery_level,
-            JSON_UNQUOTE(JSON_EXTRACT(types_of_issue, '$.jump_start_required')) AS jump_start_required, driver_name,
-            ROUND(price/100, 2) AS price, order_status, payment_status, transaction_id, ${formatDateTimeInQuery(['created_at'])},
+        columns   : `request_id, rider_id, customer_name AS name, mobile_no AS contact_no, address AS pickup_address, location_link,
+            vehicle_data, battery_level, jump_start_required,
+            (SELECT h.driver_name FROM ${RSA_OFFLINE_HISTORY_TABLE} AS h
+                WHERE h.order_id = ${RSA_OFFLINE_BOOKING_TABLE}.request_id ORDER BY h.id DESC LIMIT 1) AS driver_name,
+            price, order_status, payment_status, transaction_id, ${formatDateTimeInQuery(['created_at'])},
             (SELECT invoice_id FROM ${RSA_OFFLINE_INVOICE_TABLE} AS inv WHERE inv.request_id = ${RSA_OFFLINE_BOOKING_TABLE}.request_id LIMIT 1) AS invoice_id`,
-        liveSearchFields : ['request_id', 'name', 'contact_no'],
+        liveSearchFields : ['request_id', 'customer_name', 'mobile_no'],
         liveSearchTexts  : [search_text, search_text, search_text],
         sortColumn       : 'id',
         sortOrder        : 'DESC',
@@ -368,18 +348,22 @@ export const offlineRSAVehicleList = asyncHandler(async (req, resp) => {
 
 export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
     const {
-        customer_name, mobile_no, emailId, country_code = '+971', location_link, address, price,
+        customer_name, mobile_no, email_id, emailId, location_link, address, price,
         vehicle_make, vehicle_model, battery_level, jump_start_required, payment_status,
         transaction_id, booking_status, driver_name = null, booking_completed_by = null,
     } = mergeParam(req);
 
+    const email          = email_id || emailId;
     // Prefer driver_name; booking_completed_by kept as a free-text alias for older clients
     const completedByDriver = (driver_name || booking_completed_by || '').toString().trim() || null;
 
-    const { isValid, errors } = validateFields(mergeParam(req), {
+    const { isValid, errors } = validateFields({
+        ...mergeParam(req),
+        email_id: email,
+    }, {
         customer_name : ["required"],
         mobile_no     : ["required"],
-        emailId       : ["required"],
+        email_id      : ["required"],
         location_link : ["required"],
         address       : ["required"],
         price         : ["required"],
@@ -395,35 +379,25 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
     }
     const isCompleted = orderStatus === 'PU';
 
-    const priceInFils  = String(Math.round(Number(price) * 100));
     const bookingPrice = Number(price);
-    const jumpStart    = toBooleanFlag(jump_start_required);
+    const jumpStart    = toYesNo(jump_start_required);
     const vehicleData  = [vehicle_make, vehicle_model].filter(Boolean).join(', ') || null;
-    const typesOfIssue = JSON.stringify({ jump_start_required: jumpStart });
 
     let connection;
     try {
         connection = await startTransaction();
 
-        const { rider_id, isNewRider } = await resolveRiderByMobile({
-            name         : customer_name,
-            email        : emailId,
-            country_code,
-            mobile       : mobile_no,
-        }, connection);
+        const rider_id = await findRiderIdByMobile(mobile_no, connection);
 
         const temporaryRequestId = `TMP-${generateUniqueId({ length: 12 })}`;
         const insert = await insertRecord(RSA_OFFLINE_BOOKING_TABLE, [
-            'request_id', 'rider_id', 'rsa_id', 'name', 'country_code', 'contact_no',
-            'types_of_issue', 'pickup_address', 'pickup_latitude', 'pickup_longitude',
-            'price', 'order_status', 'device_name', 'current_percent', 'vehicle_data',
-            'booking_price', 'driver_name', 'location_link', 'payment_status', 'transaction_id',
+            'request_id', 'rider_id', 'customer_name', 'mobile_no', 'email_id', 'location_link', 'address',
+            'price', 'jump_start_required', 'battery_level', 'vehicle_data', 'booking_price',
+            'order_status', 'payment_status', 'transaction_id',
         ], [
-            temporaryRequestId, rider_id, null, customer_name, country_code, mobile_no,
-            typesOfIssue, address, '0', '0',
-            priceInFils, orderStatus, RSA_OFFLINE_DEVICE_NAME, battery_level ?? 0, vehicleData,
-            bookingPrice, completedByDriver, location_link || null,
-            payment_status || 'Pending', transaction_id || null,
+            temporaryRequestId, rider_id, customer_name, mobile_no, email, location_link || null, address,
+            bookingPrice, jumpStart, battery_level ?? 0, vehicleData, bookingPrice,
+            orderStatus, payment_status || 'Pending', transaction_id || null,
         ], connection);
 
         if (insert.affectedRows === 0) {
@@ -437,19 +411,12 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
 
         let invoice_id = null;
         if (isCompleted) {
-            const priceDetails = {
-                amount      : bookingPrice,
-                total_price : bookingPrice,
-                vat_amount  : 0,
-            };
             const temporaryInvoiceId = `TMP-${generateUniqueId({ length: 12 })}`;
             const invoiceInsert = await insertRecord(RSA_OFFLINE_INVOICE_TABLE, [
-                'invoice_id', 'request_id', 'rider_id', 'amount', 'currency', 'payment_status',
-                'payment_type', 'transaction_id', 'price_details', 'invoice_date',
+                'invoice_id', 'request_id', 'rider_id', 'amount', 'transaction_id', 'payment_status', 'invoice_date',
             ], [
-                temporaryInvoiceId, request_id, rider_id, priceInFils, 'aed', payment_status || 'Pending',
-                'offline', transaction_id || null, JSON.stringify(priceDetails),
-                moment().format('YYYY-MM-DD HH:mm:ss'),
+                temporaryInvoiceId, request_id, rider_id, bookingPrice, transaction_id || null,
+                payment_status || 'Pending', moment().format('YYYY-MM-DD HH:mm:ss'),
             ], connection);
 
             if (invoiceInsert.affectedRows === 0) {
@@ -461,32 +428,14 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         }
 
         await insertRecord(RSA_OFFLINE_HISTORY_TABLE, [
-            'order_id', 'rider_id', 'rsa_id', 'order_status', 'remarks', 'driver_name',
+            'order_id', 'rider_id', 'driver_name', 'order_status', 'remarks',
         ], [
-            request_id, rider_id, null, orderStatus, 'Offline booking added by admin', completedByDriver,
+            // request_id, rider_id, completedByDriver, orderStatus, 'Offline booking added by admin',
+            request_id, rider_id, completedByDriver, orderStatus, null,
         ], connection);
 
         await commitTransaction(connection);
         connection = null;
-
-        let whatsapp_status = 'not_applicable';
-        if (isCompleted && isNewRider && invoice_id) {
-            try {
-                await sendAppDownloadWhatsApp({
-                    customerName : customer_name,
-                    countryCode  : country_code,
-                    mobile       : mobile_no,
-                });
-                whatsapp_status = 'accepted';
-            } catch (whatsappError) {
-                whatsapp_status = 'failed';
-                console.error('[addOfflineRSABooking] WhatsApp app download message failed:', {
-                    request_id,
-                    rider_id,
-                    error: whatsappError.response?.data || whatsappError.message,
-                });
-            }
-        }
 
         return resp.json({
             status       : 1,
@@ -497,7 +446,6 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             invoice_id,
             order_status : orderStatus,
             driver_name  : completedByDriver,
-            whatsapp_status,
         });
     } catch (error) {
         if (connection) {
@@ -510,18 +458,22 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
 
 export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
     const {
-        request_id, customer_name, mobile_no, emailId, country_code = '+971', location_link, address, price,
+        request_id, customer_name, mobile_no, email_id, emailId, location_link, address, price,
         vehicle_make, vehicle_model, battery_level, jump_start_required, payment_status,
         transaction_id, booking_status, driver_name = null, booking_completed_by = null,
     } = mergeParam(req);
 
+    const email = email_id || emailId;
     const completedByDriver = (driver_name || booking_completed_by || '').toString().trim() || null;
 
-    const { isValid, errors } = validateFields(mergeParam(req), {
+    const { isValid, errors } = validateFields({
+        ...mergeParam(req),
+        email_id: email,
+    }, {
         request_id    : ["required"],
         customer_name : ["required"],
         mobile_no     : ["required"],
-        emailId       : ["required"],
+        email_id      : ["required"],
         location_link : ["required"],
         address       : ["required"],
         price         : ["required"],
@@ -541,7 +493,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
     }
 
     const existing = await queryDB(
-        `SELECT request_id, rider_id, order_status
+        `SELECT request_id, order_status
          FROM ${RSA_OFFLINE_BOOKING_TABLE}
          WHERE request_id = ?
          LIMIT 1`,
@@ -553,31 +505,31 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
 
     const wasCompleted = existing.order_status === 'PU';
     const isCompleted  = orderStatus === 'PU';
-    const priceInFils  = String(Math.round(Number(price) * 100));
     const bookingPrice = Number(price);
-    const jumpStart    = toBooleanFlag(jump_start_required);
+    const jumpStart    = toYesNo(jump_start_required);
     const vehicleData  = [vehicle_make, vehicle_model].filter(Boolean).join(', ') || null;
-    const typesOfIssue = JSON.stringify({ jump_start_required: jumpStart });
 
     let connection;
     try {
         connection = await startTransaction();
 
+        const rider_id = await findRiderIdByMobile(mobile_no, connection);
+
         const update = await updateRecord(RSA_OFFLINE_BOOKING_TABLE, {
-            name             : customer_name,
-            country_code,
-            contact_no       : mobile_no,
-            types_of_issue   : typesOfIssue,
-            pickup_address   : address,
-            price            : priceInFils,
-            order_status     : orderStatus,
-            current_percent  : battery_level ?? 0,
-            vehicle_data     : vehicleData,
-            booking_price    : bookingPrice,
-            driver_name      : completedByDriver,
-            location_link    : location_link || null,
-            payment_status   : payment_status || 'Pending',
-            transaction_id   : transaction_id || null,
+            rider_id,
+            customer_name,
+            mobile_no,
+            email_id           : email,
+            location_link      : location_link || null,
+            address,
+            price              : bookingPrice,
+            jump_start_required: jumpStart,
+            battery_level      : battery_level ?? 0,
+            vehicle_data       : vehicleData,
+            booking_price      : bookingPrice,
+            order_status       : orderStatus,
+            payment_status     : payment_status || 'Pending',
+            transaction_id     : transaction_id || null,
         }, ['request_id'], [request_id], connection);
 
         if (update.affectedRows === 0) {
@@ -594,30 +546,22 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         );
 
         if (isCompleted) {
-            const priceDetails = {
-                amount      : bookingPrice,
-                total_price : bookingPrice,
-                vat_amount  : 0,
-            };
-
             if (existingInvoice?.invoice_id) {
                 invoice_id = existingInvoice.invoice_id;
                 await updateRecord(RSA_OFFLINE_INVOICE_TABLE, {
-                    amount         : priceInFils,
+                    rider_id,
+                    amount         : bookingPrice,
                     payment_status : payment_status || 'Pending',
                     transaction_id : transaction_id || null,
-                    price_details  : JSON.stringify(priceDetails),
                     invoice_date   : moment().format('YYYY-MM-DD HH:mm:ss'),
                 }, ['request_id'], [request_id], connection);
             } else {
                 const temporaryInvoiceId = `TMP-${generateUniqueId({ length: 12 })}`;
                 const invoiceInsert = await insertRecord(RSA_OFFLINE_INVOICE_TABLE, [
-                    'invoice_id', 'request_id', 'rider_id', 'amount', 'currency', 'payment_status',
-                    'payment_type', 'transaction_id', 'price_details', 'invoice_date',
+                    'invoice_id', 'request_id', 'rider_id', 'amount', 'transaction_id', 'payment_status', 'invoice_date',
                 ], [
-                    temporaryInvoiceId, request_id, existing.rider_id, priceInFils, 'aed', payment_status || 'Pending',
-                    'offline', transaction_id || null, JSON.stringify(priceDetails),
-                    moment().format('YYYY-MM-DD HH:mm:ss'),
+                    temporaryInvoiceId, request_id, rider_id, bookingPrice, transaction_id || null,
+                    payment_status || 'Pending', moment().format('YYYY-MM-DD HH:mm:ss'),
                 ], connection);
 
                 if (invoiceInsert.affectedRows === 0) {
@@ -629,18 +573,45 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             }
         } else {
             invoice_id = existingInvoice?.invoice_id || null;
+            if (existingInvoice?.invoice_id) {
+                await updateRecord(RSA_OFFLINE_INVOICE_TABLE, { rider_id }, ['request_id'], [request_id], connection);
+            }
         }
 
         const statusChanged = existing.order_status !== orderStatus;
-        const historyRemarks = statusChanged
-            ? `Offline booking updated by admin - status ${existing.order_status} to ${orderStatus}`
-            : 'Offline booking updated by admin';
+        const latestHistory = await queryDB(
+            `SELECT id, driver_name FROM ${RSA_OFFLINE_HISTORY_TABLE}
+             WHERE order_id = ?
+             ORDER BY id DESC
+             LIMIT 1`,
+            [request_id],
+            connection
+        );
 
-        await insertRecord(RSA_OFFLINE_HISTORY_TABLE, [
-            'order_id', 'rider_id', 'rsa_id', 'order_status', 'remarks', 'driver_name',
-        ], [
-            request_id, existing.rider_id, null, orderStatus, historyRemarks, completedByDriver,
-        ], connection);
+        if (!latestHistory || statusChanged) {
+            // const historyRemarks = statusChanged
+            //     ? `Offline booking updated by admin - status ${RSA_OFFLINE_STATUS_LABEL[existing.order_status] || existing.order_status} to ${RSA_OFFLINE_STATUS_LABEL[orderStatus] || orderStatus}`
+            //     : 'Offline booking added by admin';
+
+            await insertRecord(RSA_OFFLINE_HISTORY_TABLE, [
+                'order_id', 'rider_id', 'driver_name', 'order_status', 'remarks',
+            ], [
+                // request_id, rider_id, completedByDriver, orderStatus, historyRemarks,
+                request_id, rider_id, completedByDriver, orderStatus, null,
+            ], connection);
+        } else {
+            const historyUpdate = { rider_id };
+            if ((completedByDriver || null) !== (latestHistory.driver_name || null)) {
+                historyUpdate.driver_name = completedByDriver;
+            }
+            await updateRecord(
+                RSA_OFFLINE_HISTORY_TABLE,
+                historyUpdate,
+                ['id'],
+                [latestHistory.id],
+                connection
+            );
+        }
 
         await commitTransaction(connection);
         connection = null;
@@ -650,7 +621,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             code             : 200,
             message          : ['Offline RSA booking updated successfully!'],
             request_id,
-            rider_id         : existing.rider_id,
+            rider_id,
             invoice_id,
             order_status     : orderStatus,
             previous_status  : existing.order_status,
@@ -732,9 +703,9 @@ export const invoiceList = asyncHandler(async (req, resp) => {
         FROM road_assistance_invoice AS rai
         UNION ALL
         SELECT
-            roi.invoice_id, roi.request_id, roi.payment_status, roi.invoice_date, roi.currency,
-            roi.amount, roi.created_at, 'Offline' AS booking_source,
-            (SELECT CONCAT(rob.name, ",", rob.country_code, "-", rob.contact_no)
+            roi.invoice_id, roi.request_id, roi.payment_status, roi.invoice_date, 'aed' AS currency,
+            ROUND(roi.amount * 100, 0) AS amount, roi.created_at, 'Offline' AS booking_source,
+            (SELECT CONCAT(rob.customer_name, ",", rob.mobile_no)
                 FROM ${RSA_OFFLINE_BOOKING_TABLE} AS rob WHERE rob.request_id = roi.request_id LIMIT 1) AS riderDetails
         FROM ${RSA_OFFLINE_INVOICE_TABLE} AS roi
     ) AS invoices`;
@@ -769,32 +740,51 @@ export const invoiceData = async (req, resp) => {
     if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
 
     // Offline invoices are numbered RAINV-## and live in their own table.
-    const isOffline    = /^RAINV-/i.test(invoice_id);
-    const invoiceTable = isOffline ? RSA_OFFLINE_INVOICE_TABLE : 'road_assistance_invoice';
-    const bookingTable = isOffline ? RSA_OFFLINE_BOOKING_TABLE : 'road_assistance';
+    const isOffline = /^RAINV-/i.test(invoice_id);
 
-    const data = await queryDB(`
-        SELECT 
-            invoice_id, invoice_date, currency,  
-            rs.name, rs.request_id, rs.current_percent, price_details
-        FROM 
-            ${invoiceTable} AS pci 
-        LEFT JOIN 
-            ${bookingTable} AS rs ON rs.request_id = pci.request_id
-        WHERE pci.invoice_id = ?
-    `, [invoice_id]);
+    let data;
+    if (isOffline) {
+        data = await queryDB(`
+            SELECT
+                pci.invoice_id, pci.invoice_date, 'aed' AS currency,
+                rs.customer_name AS name, rs.request_id, rs.battery_level AS current_percent,
+                rs.price AS booking_amount, rs.booking_price
+            FROM ${RSA_OFFLINE_INVOICE_TABLE} AS pci
+            LEFT JOIN ${RSA_OFFLINE_BOOKING_TABLE} AS rs ON rs.request_id = pci.request_id
+            WHERE pci.invoice_id = ?
+        `, [invoice_id]);
 
-    if (!data) return resp.json({ status: 0, code: 404, message: ["Invoice not found!"] });
+        if (!data) return resp.json({ status: 0, code: 404, message: ["Invoice not found!"] });
 
-    const priceDetails = parsePriceDetails(data.price_details);
+        data.booking_source = 'Offline';
+        data.servicePrice   = Number(data.booking_amount ?? data.booking_price ?? 0);
+        data.dis_price      = 0;
+        data.t_vat_amt      = 0;
+        data.price          = Number(data.booking_price ?? data.booking_amount ?? 0);
+        data.price_details  = {};
+    } else {
+        data = await queryDB(`
+            SELECT
+                invoice_id, invoice_date, currency,
+                rs.name, rs.request_id, rs.current_percent, price_details
+            FROM road_assistance_invoice AS pci
+            LEFT JOIN road_assistance AS rs ON rs.request_id = pci.request_id
+            WHERE pci.invoice_id = ?
+        `, [invoice_id]);
 
-    data.currency       = data.currency == "null" || data.currency == null ? 'aed' : data.currency;
-    data.booking_source = isOffline ? 'Offline' : 'Online';
-    data.servicePrice   = priceDetails.amount ?? 0;
-    data.dis_price      = priceDetails.discount_amt ?? 0;
-    data.t_vat_amt      = priceDetails.vat_amount ?? 0;
-    data.price          = priceDetails.total_price ?? 0;
-    data.price_details  = {};
+        if (!data) return resp.json({ status: 0, code: 404, message: ["Invoice not found!"] });
+
+        const priceDetails = parsePriceDetails(data.price_details);
+
+        data.currency       = data.currency == "null" || data.currency == null ? 'aed' : data.currency;
+        data.booking_source = 'Online';
+        data.servicePrice   = priceDetails.amount ?? 0;
+        data.dis_price      = priceDetails.discount_amt ?? 0;
+        data.t_vat_amt      = priceDetails.vat_amount ?? 0;
+        data.price          = priceDetails.total_price ?? 0;
+        data.price_details  = {};
+    }
+
     return resp.json({
         message : ["Ev Roadside Assistance Invoice Details fetched successfully!"],
         data    : data,

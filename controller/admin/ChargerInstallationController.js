@@ -781,7 +781,7 @@ export const PurchaseHistoryList = asyncHandler(async (req, resp) => {
         
         const params = {
             tableName  : 'purchase_history',
-            columns    : `purchase_date, customer_name, customer_mobile, product_name, type_of_service, purchase_id`,
+            columns    : `purchase_date, installation_date, customer_name, customer_mobile, product_name, type_of_service, purchase_id`,
             sortColumn : 'id DESC',
             sortOrder  : '',
             page_no,

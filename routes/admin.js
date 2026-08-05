@@ -263,8 +263,8 @@ const uploadRules = {
     '/add-pod-brand'      : { folder: 'pod-brand-images', fields: ['brand_image'],   maxCount: 1 },
     '/edit-pod-brand'     : { folder: 'pod-brand-images', fields: ['brand_image'],   maxCount: 1 },
 
-    '/ev-charger-add' : { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', , 'charger_gallery'], maxCount: 2},
-    '/ev-charger-edit': { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', , 'charger_gallery'], maxCount: 2},
+    '/ev-charger-add' : { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', 'charger_gallery'], maxCount: 2},
+    '/ev-charger-edit': { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', 'charger_gallery'], maxCount: 2},
 
     '/ev-accessories-add' : { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', 'charger_gallery'], maxCount: 2},
     '/ev-accessories-edit': { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', 'charger_gallery'], maxCount: 2},

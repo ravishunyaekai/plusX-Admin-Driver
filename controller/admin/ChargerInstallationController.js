@@ -1,7 +1,7 @@
 import db from '../../config/db.js';
 import dotenv from 'dotenv';
 import generateUniqueId from 'generate-unique-id';
-import { formatDateTimeInQuery, formatDateInQuery, asyncHandler, deleteFile} from '../../utils.js';
+import { formatDateTimeInQuery, formatDateInQuery, asyncHandler, deleteFile, mergeParam } from '../../utils.js';
 import { getPaginatedData, insertRecord, updateRecord, queryDB } from '../../dbUtils.js';
 import validateFields from "../../validation.js";
 dotenv.config();
@@ -194,7 +194,7 @@ export const eVChargerAdd = asyncHandler(async (req, resp) => {
         const { charger_name, compatible, outputPower, warrantyType, charger_feature, description,
             vehicleSpecification, vehicleBrand="", vehicleModal="", price, usedFor, propertyType
         } = req.body;
-
+        
         const charger_image     = req.files['charger_image']     ? req.files['charger_image'][0].filename : null;
         const specification_pdf = req.files['specification_pdf'] ? req.files['specification_pdf'][0].filename : null;
         const chargerGallery    = req.files['charger_gallery']?.map(file => file.filename) || [];
@@ -372,7 +372,7 @@ export const evChargerDetails = asyncHandler(async (req, resp) => {
     }
 });
 
-export const eVChargerEdit = asyncHandler(async (req, resp) => {
+export const eVChargerEditOld = asyncHandler(async (req, resp) => {
     try {
         const { charger_id, charger_name, compatible, outputPower, warrantyType, charger_feature, description, status,
             vehicleSpecification, vehicleBrand="", vehicleModal="", price, usedFor, propertyType
@@ -425,6 +425,127 @@ export const eVChargerEdit = asyncHandler(async (req, resp) => {
         if(req.files && req.files['specification_pdf']){ 
             deleteFile('charger-installation', charger.specification_pdf); 
         }
+        if(chargerGallery.length > 0){
+            const values = chargerGallery.map(filename => [charger_id, filename]);
+            const placeholders = values.map(() => '(?, ?)').join(', ');
+            await db.execute(`INSERT INTO ev_charger_gallery (charger_id, image_name) VALUES ${placeholders}`, values.flat());
+        }
+        return resp.json({
+            code: 200,
+            message: update.affectedRows > 0 ? 'EV Charger updated successfully!' : 'Oops! Something went wrong. Please try again.',
+            status: update.affectedRows > 0 ? 1 : 0
+        });
+    } catch (error) {
+        console.error('Something went wrong:', error);
+        // resp.json({ status:0, code: 500, message: 'Something went wrong' });
+        tryCatchErrorHandler(req.originalUrl, error, resp, 'Oops! There is something went wrong!');
+    }
+});
+
+export const eVChargerEdit = asyncHandler(async (req, resp) => {
+    try {
+        const {
+            charger_id, charger_name, compatible, outputPower, warrantyType, charger_feature, description, status,
+            vehicleSpecification, vehicleBrand="", vehicleModal="", price, usedFor, propertyType,
+            remove_cover_image, delete_charger_image, deleted_gallery_ids, remove_gallery_ids, gallery_ids_to_delete,
+        } = req.body;
+        
+        const { isValid, errors } = validateFields({ charger_id, charger_name, compatible, outputPower, warrantyType, charger_feature, description, vehicleSpecification, price, usedFor, propertyType
+        }, {
+            charger_id      : ["required"],
+            charger_name    : ["required"],
+            compatible      : ["required"],
+            outputPower     : ["required"],
+            warrantyType    : ["required"], 
+            charger_feature : ["required"],
+            description     : ["required"],
+        });
+        if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
+        
+        const charger = await queryDB(`
+            SELECT 
+                charger_image, specification_pdf 
+            FROM 
+                ev_charger 
+            WHERE 
+                charger_id = ?`, 
+        [charger_id]);
+        if(!charger) return resp.json({status:0, message: "Charger Data can not edit, or invalid charger Id"});
+
+        const normalizeFlagValue = (value) => (Array.isArray(value) ? value[0] : value);
+        const removeCoverFlag = normalizeFlagValue(remove_cover_image);
+        const deleteCoverFlag = normalizeFlagValue(delete_charger_image);
+        const shouldRemoveCover = [true, 1, '1', 'true', 'True', 'TRUE', 'yes', 'Yes']
+            .includes(removeCoverFlag)
+            || [true, 1, '1', 'true', 'True', 'TRUE', 'yes', 'Yes']
+                .includes(deleteCoverFlag);
+
+        let charger_image = charger.charger_image;
+        if (req.files && req.files['charger_image']) {
+            charger_image = req.files['charger_image'][0].filename;
+        } else if (shouldRemoveCover) {
+            // Keep empty string for compatibility with existing ev_charger records.
+            charger_image = '';
+        }
+
+        const specification_pdf = req.files && req.files['specification_pdf']
+            ? req.files['specification_pdf'][0].filename
+            : charger.specification_pdf;
+
+        const uploadedFiles  = req.files || {};
+        const chargerGallery = uploadedFiles['charger_gallery']?.map(file => file.filename) || [];
+
+        const updates = { 
+            charger_name, outputPower, warrantyType, description, charger_image, 
+            specification_pdf,  compatible, charger_feature,
+            status                : status == 'true' ? 1 : 0, 
+            vehicle_specification : vehicleSpecification,   
+            // vehicle_brand         : vehicleBrand,
+            // vehicle_modal         : vehicleModal,
+            price                 : price, 
+            used_for              : usedFor, 
+            property_type         : propertyType,
+        };
+        const update = await updateRecord('ev_charger', updates, ['charger_id'], [charger_id]);
+
+        // Delete old cover from S3 when replaced or explicitly removed
+        if ((req.files && req.files['charger_image'] || shouldRemoveCover) && charger.charger_image) {
+            deleteFile('charger-installation', charger.charger_image);
+        }
+        if(req.files && req.files['specification_pdf']){ 
+            deleteFile('charger-installation', charger.specification_pdf); 
+        }
+
+        // Delete selected gallery images (DB + S3)
+        const rawGalleryIds = deleted_gallery_ids || remove_gallery_ids || gallery_ids_to_delete;
+        let galleryIdsToDelete = [];
+        if (rawGalleryIds) {
+            if (Array.isArray(rawGalleryIds)) {
+                galleryIdsToDelete = rawGalleryIds;
+            } else if (typeof rawGalleryIds === 'string') {
+                try {
+                    const parsed = JSON.parse(rawGalleryIds);
+                    galleryIdsToDelete = Array.isArray(parsed) ? parsed : String(rawGalleryIds).split(',');
+                } catch {
+                    galleryIdsToDelete = String(rawGalleryIds).split(',');
+                }
+            } else {
+                galleryIdsToDelete = [rawGalleryIds];
+            }
+            galleryIdsToDelete = galleryIdsToDelete.map((id) => String(id).trim()).filter(Boolean);
+        }
+
+        for (const galleryId of galleryIdsToDelete) {
+            const galleryData = await queryDB(
+                `SELECT image_name FROM ev_charger_gallery WHERE id = ? AND charger_id = ? LIMIT 1`,
+                [galleryId, charger_id]
+            );
+            if (galleryData?.image_name) {
+                deleteFile('charger-installation', galleryData.image_name);
+                await db.execute('DELETE FROM ev_charger_gallery WHERE id = ?', [galleryId]);
+            }
+        }
+
         if(chargerGallery.length > 0){
             const values = chargerGallery.map(filename => [charger_id, filename]);
             const placeholders = values.map(() => '(?, ?)').join(', ');
@@ -701,16 +822,22 @@ export const AccessoriesEdit = asyncHandler(async (req, resp) => {
 });
 
 export const deleteEVChargerGallery = asyncHandler(async (req, resp) => {
-    const { gallery_id } = req.body;
-    if(!gallery_id) return resp.json({status:0, message: "Gallery Id is required"});
+    const { gallery_id } = mergeParam(req);
+    if (!gallery_id) return resp.json({ status: 0, message: "Gallery Id is required" });
 
-    const galleryData = await queryDB(`SELECT image_name FROM ev_charger_gallery WHERE id = ? LIMIT 1`, [gallery_id]);
-    
-    if(galleryData){
-        deleteFile('charger-installation', galleryData.image_name);
-        await db.execute('DELETE FROM ev_charger_gallery WHERE id = ?', [gallery_id]);
+    const galleryData = await queryDB(
+        `SELECT image_name FROM ev_charger_gallery WHERE id = ? LIMIT 1`,
+        [gallery_id]
+    );
+
+    if (!galleryData) {
+        return resp.json({ status: 0, code: 404, message: "Gallery image not found" });
     }
-    return resp.json({status: 1, code: 200,  message: "Gallery image deleted successfully"});
+
+    deleteFile('charger-installation', galleryData.image_name);
+    await db.execute('DELETE FROM ev_charger_gallery WHERE id = ?', [gallery_id]);
+
+    return resp.json({ status: 1, code: 200, message: "Gallery image deleted successfully" });
 });
 
 // Purchase history Func

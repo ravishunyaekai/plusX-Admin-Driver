@@ -233,6 +233,8 @@ export const offlineRSABookingData = asyncHandler(async (req, resp) => {
         booking.price         = Number(booking.price || 0).toFixed(2);
         booking.vehicle_make  = vehicleMake;
         booking.vehicle_model = vehicleModelParts.join(', ') || null;
+        booking.country_code  = '+971';
+        booking.mobile_no     = booking.contact_no;
 
         return resp.json({
             status  : 1,

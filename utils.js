@@ -303,7 +303,9 @@ export const deleteFile = (directory, filename) => {
 
 export const asyncHandler = (fn) => {
     return function (req, res, next) {
-        fn(req, res, next).catch(next);
+        // Promise.resolve supports both async and sync handlers.
+        // Without it, sync handlers returning undefined crash on `.catch`.
+        Promise.resolve(fn(req, res, next)).catch(next);
     };
 };
 

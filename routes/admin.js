@@ -39,6 +39,8 @@ import { chargeShareList, chargeShareDetail, outputAndConnector, editAcceptCharg
 
 import { communityList, communityDetail, addCommunity, editCommunity, allCommunityList, addResident, editResident, residentList, residentDetail, communityAreaList, residentSearch, getInvoiceData, createScanChargeInvoice, scanChargeInvoiceList, scanChargeInvoiceDetail, sessionList, sessionDetail } from "../controller/admin/CommunityController.js";
 
+import { asyncHandler } from "../utils.js";
+
 const router = Router();
 
 const adminAuthRoutes = [
@@ -47,7 +49,7 @@ const adminAuthRoutes = [
     { method: 'get',  path: '/user-signup-list-download', handler: donwloadUserList },
 ]
 adminAuthRoutes.forEach(({ method, path, handler }) => {
-    router[method](path, adminAuthorization, handler);
+    router[method](path, adminAuthorization, asyncHandler(handler));
 });
 
 const adminRoutes = [
@@ -283,7 +285,8 @@ adminRoutes.forEach(({ method, path, handler }) => {
         middlewares.push(handleFileUpload(rule.folder, rule.fields, rule.maxCount));
     }
     middlewares.push(authenticateAdmin);
-    router[method](path, ...middlewares, handler);
+    // Wrap every controller so rejected promises always reach errorHandler
+    router[method](path, ...middlewares, asyncHandler(handler));
 });
 
 export default router;

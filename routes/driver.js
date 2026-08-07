@@ -12,6 +12,8 @@ import {
     handleBookingAction, getRsaBookingStage, handleRejectBooking 
 } from '../controller/driver/ChargingServiceController.js';
 
+import { asyncHandler } from '../utils.js';
+
 //import { makeBookingHistoryPOD, makeBookingHistoryRSA, makeBookingHistoryValet } from '../controller/InvoiceController.js'; 
 
 const router = Router();
@@ -28,7 +30,7 @@ const authzRoutes = [
 ];
 authzRoutes.forEach(({ method, path, handler }) => {
     const middlewares = [apiAuthorization];
-    router[method](path, ...middlewares, handler);
+    router[method](path, ...middlewares, asyncHandler(handler));
 });
 
 /* -- Api Auth & Api RSA Authz Middleware -- */
@@ -79,7 +81,7 @@ authzRsaAndAuthRoutes.forEach(({ method, path, handler }) => {
     middlewares.push(apiAuthorization);
     middlewares.push(apiRsaAuthentication);
 
-    router[method](path, ...middlewares, handler);
+    router[method](path, ...middlewares, asyncHandler(handler));
 });
 
 //router.post('/pod-invoice-history', apiAuthorization, makeBookingHistoryPOD);

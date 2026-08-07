@@ -107,7 +107,7 @@ export const donwloadPodBookingList = async (req, resp) => {
 
     } catch(err) {
         console.log('err exporting : ', err);
-        tryCatchErrorHandler(err, resp, 'Error exporting charger booking lists');
+        tryCatchErrorHandler(req.originalUrl, err, resp, 'Error exporting charger booking lists');
     }
 };
 export const donwloadUserList = async (req, resp) => {
@@ -183,7 +183,7 @@ export const donwloadUserList = async (req, resp) => {
 
     }catch(err){
         console.log('err exporting : ', err);
-        tryCatchErrorHandler(err, resp, 'Error exporting charger User lists');
+        tryCatchErrorHandler(req.originalUrl, err, resp, 'Error exporting charger User lists');
     }
     
 }; 

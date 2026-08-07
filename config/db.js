@@ -14,37 +14,24 @@ const pool = mysql.createPool({
     queueLimit         : 0
     // connectTimeout     : 10000,
 });
-// Added By Ravv
-// pool.on("connection", (connection) => { 
-//     console.log("New DB connection established:", connection.threadId);
-// });
-  
-// pool.on("error", (err) => {
-//     console.error(" MySQL Pool Error:", err);
-//     if (err.code === "PROTOCOL_CONNECTION_LOST" || err.code === "ECONNRESET") {
-//       console.log("Reconnecting to database...");
-      
-//     }
-//     logger.error(`Error database connection pool :`, err);
-//     connectDB();
-// });
-function connectDB() {
-    console.log("connection function call");
-    pool.getConnection((err, connection) => {
-        if (err) {
-            console.log("Database connection failed:", err);
-            logger.error(`Error database connection inside function :`, err);
-            setTimeout(connectDB, 2000); // Retry after 2 seconds
-        } else {
-            console.log("connected");
-            console.log("Database connected!");
-            connection.release();
-        }
-    });
+// Log idle connection failures without crashing the process
+pool.on("error", (err) => {
+    console.error("MySQL Pool Error:", err);
+    logger.error(`Error database connection pool:`, err);
+});
+
+async function connectDB() {
+    try {
+        const connection = await pool.getConnection();
+        console.log("Database connected!");
+        connection.release();
+    } catch (err) {
+        console.log("Database connection failed:", err);
+        logger.error(`Error database connection inside function:`, err);
+        setTimeout(connectDB, 2000);
+    }
 }
 connectDB();
-
-// End Added By Ravv
 
 const retryConnection = async (retries, delay) => {
   for (let i = 0; i <= retries; i++) {

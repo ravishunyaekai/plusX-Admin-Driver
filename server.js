@@ -7,6 +7,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'url';
 import { errorHandler } from './middleware/errorHandler.js';
+import logger from './logger.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -50,7 +51,20 @@ app.use(express.static(path.join(__dirname, 'build')));
 app.get('/*', function (req, res) {
     res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
+
+// Express error middleware must be registered after routes
 app.use(errorHandler);
+
+// Prevent process crash on async failures outside Express request chain
+process.on('unhandledRejection', (reason) => {
+    logger.error(`Unhandled Rejection: ${reason?.stack || reason}`);
+    console.error('Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    logger.error(`Uncaught Exception: ${error?.stack || error}`);
+    console.error('Uncaught Exception:', error);
+});
 
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);

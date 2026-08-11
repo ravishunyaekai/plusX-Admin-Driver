@@ -30,6 +30,33 @@ dotenv.config();
      
         return fileName;
     };
+
+    /**
+     * Upload a single file to S3 and return filename, key, and full public URL.
+     * Used by the Postman-friendly /admin/upload-file API.
+     */
+    export const uploadFileToS3WithDetails = async (file, dirName = 'default') => {
+        const fileName = `${Date.now()}-${file.originalname}`;
+        const key = `${process.env.S3_FOLDER_NAME}/${dirName}/${fileName}`;
+
+        const params = {
+            Bucket       : process.env.AWS_BUCKET_NAME,
+            Key          : key,
+            Body         : file.buffer,
+            ACL          : 'public-read',
+            ContentType  : file.mimetype,
+            CacheControl : 'public, max-age=31536000',
+        };
+
+        const result = await s3.upload(params).promise();
+
+        return {
+            fileName,
+            key,
+            s3_url : result.Location,
+            url    : `${process.env.DIR_UPLOADS}${dirName}/${fileName}`,
+        };
+    };
     export const handleFileUpload = ( dirName, fileFields, requiredFields = [], maxFiles = 10, allowedFileTypes = ['pdf', 'png', 'jpeg', 'jpg'] ) => {
         const storage = multer.memoryStorage(); // direct to s3
  

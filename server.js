@@ -2,6 +2,7 @@ import express from 'express';
 import bodyParser from 'body-parser';
 import adminRoutes from './routes/admin.js';
 import driverRoutes from './routes/driver.js';
+import communityRoutes from './routes/community.js';
 import path from 'path';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -25,6 +26,7 @@ const corsOptions = {
         'http://localhost:3000',
         'http://localhost:3001',
         'http://localhost:8802',
+        'http://localhost:1117'
     ],
     // origin : "*",
     methods: 'GET, POST, PUT, DELETE',
@@ -42,14 +44,36 @@ app.use(cookieParser());
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
+// API routes
 app.use('/admin', adminRoutes);
 app.use('/driver', driverRoutes);
+// Community manager APIs (login, dashboard, community details, residents — scoped by community_id)
+app.use('/community', communityRoutes);
 
-// React build
+// ---------------------------------------------------------------------------
+// Community panel UI (separate React project build → upload to community-build/)
+// Accessible at: https://plusx.shunyaekai.com/community-app
+// Community React app must be built with base path "/community-app"
+// ---------------------------------------------------------------------------
+// app.use('/community-app', express.static(path.join(__dirname, 'community-build')));
+// app.get('/community-app/*', function (req, res) {
+//     res.sendFile(path.join(__dirname, 'community-build', 'index.html'));
+// });
+app.use('/community-app', express.static(path.join(__dirname, 'community-build', 'build')));
+app.get('/community-app/*', function (req, res) {
+    res.sendFile(path.join(__dirname, 'community-build', 'build', 'index.html'));
+});
+
+// ---------------------------------------------------------------------------
+// Admin panel UI (existing React build → upload to build/)
+// Keep this last so it does not catch /community-app or API routes
+// Accessible at: https://plusx.shunyaekai.com/
+// ---------------------------------------------------------------------------
 app.use(express.static(path.join(__dirname, 'build')));
 app.get('/*', function (req, res) {
     res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
+
 app.use(errorHandler);
 
 app.listen(PORT, () => {

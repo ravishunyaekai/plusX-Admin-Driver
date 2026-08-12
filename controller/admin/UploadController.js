@@ -35,17 +35,42 @@ export const uploadFileMiddleware = (req, res, next) => {
 };
 
 /**
+ * Sanitize folder path for S3.
+ * Allows: banner, mobility/banner, mobility-banner
+ * Blocks: path traversal (..), empty segments, special chars
+ */
+const sanitizeFolder = (raw = 'banner') => {
+    const cleaned = String(raw)
+        .trim()
+        .replace(/\\/g, '/')                 // normalize Windows slashes
+        .replace(/[^a-zA-Z0-9_/-]/g, '')    // keep letters, numbers, _, -, /
+        .replace(/\/+/g, '/')                // collapse //
+        .replace(/^\/+|\/+$/g, '');          // trim leading/trailing /
+
+    const segments = cleaned.split('/').filter(Boolean);
+    if (
+        segments.length === 0 ||
+        segments.some((seg) => seg === '.' || seg === '..')
+    ) {
+        return 'banner';
+    }
+
+    return segments.join('/');
+};
+
+/**
  * Upload a file to S3 and return the public URL.
  * Copy s3_url / url into response_module manually after upload.
  *
  * Default path: uploads/banner/{filename}
+ * Nested example: folder=mobility/banner → uploads/mobility/banner/{filename}
  *
  * Postman:
  *   POST /admin/upload-file
  *   Header: Authorization = API_AUTH_KEY
  *   Body: form-data
  *     - file   (File)   required
- *     - folder (Text)   optional, default "banner"
+ *     - folder (Text)   optional, default "banner" (supports nested e.g. mobility/banner)
  */
 export const uploadFile = async (req, res) => {
     try {
@@ -57,9 +82,7 @@ export const uploadFile = async (req, res) => {
             });
         }
 
-        // Default folder: banner → S3 path = uploads/banner/{filename}
-        const rawFolder = (req.body.folder || 'banner').trim();
-        const folder    = rawFolder.replace(/[^a-zA-Z0-9_-]/g, '') || 'banner';
+        const folder = sanitizeFolder(req.body.folder || 'banner');
 
         const result = await uploadFileToS3WithDetails(req.file, folder);
 

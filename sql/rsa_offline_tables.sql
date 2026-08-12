@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS rsa_offline_booking (
     customer_name        VARCHAR(150) NOT NULL,
     mobile_no            VARCHAR(20)  NOT NULL,
     email_id             VARCHAR(150) NOT NULL,
+    country_code         VARCHAR(10)  NOT NULL DEFAULT '+971',
     location_link        TEXT         NULL,
     address              TEXT         NOT NULL,
     price                DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
@@ -16,7 +17,10 @@ CREATE TABLE IF NOT EXISTS rsa_offline_booking (
     booking_price        DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     order_status         VARCHAR(20)  NOT NULL DEFAULT 'CNF',
     payment_status       VARCHAR(50)  NULL DEFAULT 'Pending',
+    mode_of_payment      VARCHAR(50)  NULL,
+    rsa_id               VARCHAR(50)  NULL,
     transaction_id       VARCHAR(100) NULL,
+    proof_of_transaction VARCHAR(255) NULL,
     created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
@@ -24,6 +28,7 @@ CREATE TABLE IF NOT EXISTS rsa_offline_booking (
     KEY idx_rsa_offline_booking_rider_id (rider_id),
     KEY idx_rsa_offline_booking_mobile_no (mobile_no),
     KEY idx_rsa_offline_booking_order_status (order_status),
+    KEY idx_rsa_offline_booking_rsa_id (rsa_id),
     KEY idx_rsa_offline_booking_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -32,6 +37,7 @@ CREATE TABLE IF NOT EXISTS rsa_offline_order_history (
     order_id      VARCHAR(50)  NOT NULL,
     rider_id      VARCHAR(50)  NULL DEFAULT NULL,
     driver_name   VARCHAR(150) NULL,
+    rsa_id        VARCHAR(50)  NULL,
     order_status  VARCHAR(20)  NOT NULL,
     remarks       TEXT         NULL,
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -39,6 +45,7 @@ CREATE TABLE IF NOT EXISTS rsa_offline_order_history (
     PRIMARY KEY (id),
     KEY idx_rsa_offline_history_order_id (order_id),
     KEY idx_rsa_offline_history_rider_id (rider_id),
+    KEY idx_rsa_offline_history_rsa_id (rsa_id),
     KEY idx_rsa_offline_history_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

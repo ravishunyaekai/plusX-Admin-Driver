@@ -269,6 +269,9 @@ const uploadRules = {
     '/ev-accessories-add' : { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', 'charger_gallery'], maxCount: 2},
     '/ev-accessories-edit': { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', 'charger_gallery'], maxCount: 2},
 
+    '/ev-road-assistance-add-offline-booking'  : { folder: 'rsa-offline-proof', fields: ['proof_of_transaction'], maxCount: 1 },
+    '/ev-road-assistance-edit-offline-booking' : { folder: 'rsa-offline-proof', fields: ['proof_of_transaction'], maxCount: 1 },
+
     '/add-purchase-history' : { folder: 'charger-installation', fields: ['purchase_invoice_pdf', 'installation_invoice_pdf', 'completion_certificate_pdf'], maxCount: 3},
     '/purchase-history-edit' : { folder: 'charger-installation', fields: ['purchase_invoice_pdf', 'installation_invoice_pdf', 'completion_certificate_pdf'], maxCount: 3},
     '/charge-share-accept'  : { folder: 'charge-share-images', fields: ['charger_image'], maxCount: 1 },

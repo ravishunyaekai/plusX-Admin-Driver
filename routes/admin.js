@@ -23,7 +23,7 @@ import { rsaList, rsaData, rsaAdd, rsaUpdate, rsaDelete, rsaStatusChange, driver
 
 import {
     bookingData, bookingList as evRoadAssistanceBooking, invoiceList as evRoadAssistanceInvoice, invoiceData, evRoadAssistanceCancelBooking, rsaAssignBooking, failedRSABookingList, failedRSABookingDetails,
-    rsaSlotList, rsaSlotDetails, rsaSlotAdd, rsaSlotEdit, rsaDeleteSlot
+    rsaSlotList, rsaSlotDetails, rsaSlotAdd, rsaSlotEdit, rsaDeleteSlot, addOfflineRSABooking, editOfflineRSABooking, offlineRSABookingList, offlineRSABookingData, offlineRSAVehicleList
 } from '../controller/admin/EvRoadAssistanceController.js'
 
 import { couponDetail, couponList, couponAdd, couponEdit, couponDelete } from "../controller/admin/CouponController.js";
@@ -121,6 +121,11 @@ const adminRoutes = [
     /* EV Road Assistance */
     { method: 'post', path: '/ev-road-assistance-booking-list',    handler: evRoadAssistanceBooking },
     { method: 'post', path: '/ev-road-assistance-booking-details', handler: bookingData },
+    { method: 'post', path: '/ev-road-assistance-add-offline-booking', handler: addOfflineRSABooking },
+    { method: 'post', path: '/ev-road-assistance-edit-offline-booking', handler: editOfflineRSABooking },
+    { method: 'post', path: '/ev-road-assistance-offline-booking-list', handler: offlineRSABookingList },
+    { method: 'post', path: '/ev-road-assistance-offline-booking-details', handler: offlineRSABookingData },
+    { method: 'post',  path: '/ev-road-assistance-offline-vehicle-list', handler: offlineRSAVehicleList },
     { method: 'post', path: '/ev-road-assistance-cancel-booking',  handler: evRoadAssistanceCancelBooking },
     { method: 'post', path: '/ev-road-assistance-invoice-list',    handler: evRoadAssistanceInvoice },
     { method: 'post', path: '/ev-road-assistance-invoice-data',    handler: invoiceData },
@@ -258,11 +263,14 @@ const uploadRules = {
     '/add-pod-brand'      : { folder: 'pod-brand-images', fields: ['brand_image'],   maxCount: 1 },
     '/edit-pod-brand'     : { folder: 'pod-brand-images', fields: ['brand_image'],   maxCount: 1 },
 
-    '/ev-charger-add' : { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', , 'charger_gallery'], maxCount: 2},
-    '/ev-charger-edit': { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', , 'charger_gallery'], maxCount: 2},
+    '/ev-charger-add' : { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', 'charger_gallery'], maxCount: 2},
+    '/ev-charger-edit': { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', 'charger_gallery'], maxCount: 2},
 
     '/ev-accessories-add' : { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', 'charger_gallery'], maxCount: 2},
     '/ev-accessories-edit': { folder: 'charger-installation', fields: ['charger_image', 'specification_pdf', 'charger_gallery'], maxCount: 2},
+
+    '/ev-road-assistance-add-offline-booking'  : { folder: 'rsa-offline-proof', fields: ['proof_of_transaction'], maxCount: 1 },
+    '/ev-road-assistance-edit-offline-booking' : { folder: 'rsa-offline-proof', fields: ['proof_of_transaction'], maxCount: 1 },
 
     '/add-purchase-history' : { folder: 'charger-installation', fields: ['purchase_invoice_pdf', 'installation_invoice_pdf', 'completion_certificate_pdf'], maxCount: 3},
     '/purchase-history-edit' : { folder: 'charger-installation', fields: ['purchase_invoice_pdf', 'installation_invoice_pdf', 'completion_certificate_pdf'], maxCount: 3},

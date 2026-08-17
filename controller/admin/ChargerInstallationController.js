@@ -267,18 +267,22 @@ export const eVChargerList = asyncHandler(async (req, resp) => {
         }
         if (start_date && end_date) {
                     
-            const startToday = new Date(start_date);
-            const startFormattedDate = `${startToday.getFullYear()}-${(startToday.getMonth() + 1).toString()
-                .padStart(2, '0')}-${startToday.getDate().toString().padStart(2, '0')}`;
+            // const startToday = new Date(start_date);
+            // const startFormattedDate = `${startToday.getFullYear()}-${(startToday.getMonth() + 1).toString()
+            //     .padStart(2, '0')}-${startToday.getDate().toString().padStart(2, '0')}`;
                         
-            const givenStartDateTime    = startFormattedDate+' 00:00:01'; 
-            const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours'); 
-            const start        = modifiedStartDateTime.format('YYYY-MM-DD HH:mm:ss')
+            // const givenStartDateTime    = startFormattedDate+' 00:00:01'; 
+            // const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours'); 
+            // const start        = modifiedStartDateTime.format('YYYY-MM-DD HH:mm:ss')
             
-            const endToday = new Date(end_date);
-            const formattedEndDate = `${endToday.getFullYear()}-${(endToday.getMonth() + 1).toString()
-                .padStart(2, '0')}-${endToday.getDate().toString().padStart(2, '0')}`;
-            const end = formattedEndDate+' 19:59:59';
+            // const endToday = new Date(end_date);
+            // const formattedEndDate = `${endToday.getFullYear()}-${(endToday.getMonth() + 1).toString()
+            //     .padStart(2, '0')}-${endToday.getDate().toString().padStart(2, '0')}`;
+            // const end = formattedEndDate+' 19:59:59';
+
+            //optimized code
+            const start = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
+            const end = moment(end_date, "YYYY-MM-DD").format("YYYY-MM-DD") + " 19:59:59";
 
             params.whereField.push('created_at', 'created_at');
             params.whereValue.push(start, end);
@@ -644,18 +648,22 @@ export const AccessoriesList = asyncHandler(async (req, resp) => {
         }
         if (start_date && end_date) {
                     
-            const startToday = new Date(start_date);
-            const startFormattedDate = `${startToday.getFullYear()}-${(startToday.getMonth() + 1).toString()
-                .padStart(2, '0')}-${startToday.getDate().toString().padStart(2, '0')}`;
+            // const startToday = new Date(start_date);
+            // const startFormattedDate = `${startToday.getFullYear()}-${(startToday.getMonth() + 1).toString()
+            //     .padStart(2, '0')}-${startToday.getDate().toString().padStart(2, '0')}`;
                         
-            const givenStartDateTime    = startFormattedDate+' 00:00:01'; 
-            const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours'); 
-            const start        = modifiedStartDateTime.format('YYYY-MM-DD HH:mm:ss')
+            // const givenStartDateTime    = startFormattedDate+' 00:00:01'; 
+            // const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours'); 
+            // const start        = modifiedStartDateTime.format('YYYY-MM-DD HH:mm:ss')
             
-            const endToday = new Date(end_date);
-            const formattedEndDate = `${endToday.getFullYear()}-${(endToday.getMonth() + 1).toString()
-                .padStart(2, '0')}-${endToday.getDate().toString().padStart(2, '0')}`;
-            const end = formattedEndDate+' 19:59:59';
+            // const endToday = new Date(end_date);
+            // const formattedEndDate = `${endToday.getFullYear()}-${(endToday.getMonth() + 1).toString()
+            //     .padStart(2, '0')}-${endToday.getDate().toString().padStart(2, '0')}`;
+            // const end = formattedEndDate+' 19:59:59';
+
+            //optimized code
+            const start = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
+            const end = moment(end_date, "YYYY-MM-DD").format("YYYY-MM-DD") + " 19:59:59";
 
             params.whereField.push('created_at', 'created_at');
             params.whereValue.push(start, end);
@@ -902,10 +910,10 @@ export const PurchaseHistoryAdd = asyncHandler(async (req, resp) => {
     }
 });
 
-export const PurchaseHistoryList = asyncHandler(async (req, resp) => {
+export const PurchaseHistoryListOld = asyncHandler(async (req, resp) => {
     try {
         const { page_no = 1, search_text = '', start_date, end_date} = req.body;
-        
+
         const params = {
             tableName  : 'purchase_history',
             columns    : `purchase_date, installation_date, customer_name, customer_mobile, product_name, type_of_service, purchase_id`,
@@ -920,15 +928,14 @@ export const PurchaseHistoryList = asyncHandler(async (req, resp) => {
             whereOperator    : []
         }
         if (start_date && end_date) {
-                    
             const startToday = new Date(start_date);
             const startFormattedDate = `${startToday.getFullYear()}-${(startToday.getMonth() + 1).toString()
                 .padStart(2, '0')}-${startToday.getDate().toString().padStart(2, '0')}`;
-                        
-            const givenStartDateTime    = startFormattedDate+' 00:00:01'; 
-            const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours'); 
+
+            const givenStartDateTime    = startFormattedDate+' 00:00:01';
+            const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours');
             const start        = modifiedStartDateTime.format('YYYY-MM-DD HH:mm:ss')
-            
+
             const endToday = new Date(end_date);
             const formattedEndDate = `${endToday.getFullYear()}-${(endToday.getMonth() + 1).toString()
                 .padStart(2, '0')}-${endToday.getDate().toString().padStart(2, '0')}`;
@@ -939,13 +946,75 @@ export const PurchaseHistoryList = asyncHandler(async (req, resp) => {
             params.whereOperator.push('>=', '<=');
         }
         const result = await getPaginatedData(params);
-        
+
         return resp.json({
             status     : 1,
             message    : ["Purchase History List fetch successfully!"],
             data       : result.data,
             total_page : result.totalPage,
             total      : result.total,
+        });
+
+    } catch (error) {
+        console.error('Error fetching list:', error);
+        return resp.json({
+            status  : 0,
+            code    : 500,
+            message : 'Error fetching list'
+        });
+    }
+});
+
+//purchase history list with date filter based on purchase_date or installation_date
+export const PurchaseHistoryList = asyncHandler(async (req, resp) => {
+    try {
+        const { page_no = 1, search_text = '', start_date, end_date } = req.body;
+        const limit  = 10;
+        const page   = (isNaN(page_no) || page_no < 1) ? 1 : parseInt(page_no, 10);
+        const offset = (page * limit) - limit;
+
+        const whereParts = [];
+        const queryParams = [];
+
+        // Match if purchase_date OR installation_date falls in the selected range (DATE columns).
+        if (start_date && end_date) {
+            const start = moment(start_date, "YYYY-MM-DD").format("YYYY-MM-DD");
+            const end   = moment(end_date, "YYYY-MM-DD").format("YYYY-MM-DD");
+
+            whereParts.push(`(
+                (purchase_date IS NOT NULL AND purchase_date >= ? AND purchase_date <= ?)
+                OR
+                (installation_date IS NOT NULL AND installation_date >= ? AND installation_date <= ?)
+            )`);
+            queryParams.push(start, end, start, end);
+        }
+
+        if (search_text) {
+            whereParts.push(`(customer_mobile LIKE ? OR product_name LIKE ?)`);
+            queryParams.push(`%${search_text.trim()}%`, `%${search_text.trim()}%`);
+        }
+
+        const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+        const [rows] = await db.execute(`
+            SELECT SQL_CALC_FOUND_ROWS
+                purchase_date, installation_date, customer_name, customer_mobile,
+                product_name, type_of_service, purchase_id
+            FROM purchase_history
+            ${whereSql}
+            ORDER BY id DESC
+            LIMIT ${offset}, ${limit}
+        `, queryParams);
+
+        const [[{ total }]] = await db.query('SELECT FOUND_ROWS() AS total');
+        const totalPage = Math.max(Math.ceil(total / limit), 1);
+
+        return resp.json({
+            status     : 1,
+            message    : ["Purchase History List fetch successfully!"],
+            data       : rows,
+            total_page : totalPage,
+            total,
         });
 
     } catch (error) {

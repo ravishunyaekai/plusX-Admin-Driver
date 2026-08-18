@@ -36,7 +36,10 @@ CREATE TABLE IF NOT EXISTS charger_installation_inquiry (
     final_amount                DECIMAL(10, 2) NULL,
     completion_certificate      VARCHAR(255) NULL,
     charger_purchase_invoice    VARCHAR(255) NULL,
-    enquiry_status              VARCHAR(50)  NOT NULL,
+    -- enquiry_status shorthand: ASG=Assigned, CTC=Contacted, FUR=Follow-up Required,
+    -- SVP=Site Visit Planned, SVC=Site Visit Completed, QSH=Quotation Shared,
+    -- ISC=Installation Scheduled, INC=Installation Completed, LCN=Lost / Cancelled
+    enquiry_status              ENUM('ASG', 'CTC', 'FUR', 'SVP', 'SVC', 'QSH', 'ISC', 'INC', 'LCN') NOT NULL,
     lost_cancelled_remark       TEXT         NULL,
     created_at                  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

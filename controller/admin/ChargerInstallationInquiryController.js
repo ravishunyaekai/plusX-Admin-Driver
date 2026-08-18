@@ -11,17 +11,46 @@ const LEAD_SOURCES = ['WhatsApp', 'Call', 'Email', 'Website', 'Other'];
 const YES_NO_VALUES = ['Yes', 'No'];
 const SITE_VISIT_STATUSES = ['Planned', 'Completed', 'Cancelled'];
 const CHARGER_AVAILABILITY = ['already_has', 'buy_from_us'];
-const ENQUIRY_STATUSES = [
-    'Assigned',
-    'Contacted',
-    'Follow-up Required',
-    'Site Visit Planned',
-    'Site Visit Completed',
-    'Quotation Shared',
-    'Installation Scheduled',
-    'Installation Completed',
-    'Lost / Cancelled',
-];
+
+const ENQUIRY_STATUS_MAP = {
+    'ASG'                    : 'ASG',
+    'ASSIGNED'               : 'ASG',
+    'CTC'                    : 'CTC',
+    'CONTACTED'              : 'CTC',
+    'FUR'                    : 'FUR',
+    'FOLLOW-UP REQUIRED'     : 'FUR',
+    'SVP'                    : 'SVP',
+    'SITE VISIT PLANNED'     : 'SVP',
+    'SVC'                    : 'SVC',
+    'SITE VISIT COMPLETED'   : 'SVC',
+    'QSH'                    : 'QSH',
+    'QUOTATION SHARED'       : 'QSH',
+    'ISC'                    : 'ISC',
+    'INSTALLATION SCHEDULED' : 'ISC',
+    'INC'                    : 'INC',
+    'INSTALLATION COMPLETED' : 'INC',
+    'LCN'                    : 'LCN',
+    'LOST / CANCELLED'       : 'LCN',
+};
+
+const ENQUIRY_STATUS_LABEL = {
+    ASG : 'Assigned',
+    CTC : 'Contacted',
+    FUR : 'Follow-up Required',
+    SVP : 'Site Visit Planned',
+    SVC : 'Site Visit Completed',
+    QSH : 'Quotation Shared',
+    ISC : 'Installation Scheduled',
+    INC : 'Installation Completed',
+    LCN : 'Lost / Cancelled',
+};
+
+const resolveEnquiryStatus = (value) => {
+    if (!value) return null;
+    return ENQUIRY_STATUS_MAP[String(value).trim().toUpperCase()] || null;
+};
+
+const enquiryStatusLabel = (value) => ENQUIRY_STATUS_LABEL[value] || value || null;
 
 const parseDate = (value) => {
     if (!value || String(value).includes('_')) return null;
@@ -87,10 +116,12 @@ const validateInquiryPayload = (body) => {
     });
     if (!isValid) return { isValid: false, errors };
 
+    const enquiryStatusCode = resolveEnquiryStatus(enquiry_status);
+
     if (!isAllowed(lead_source, LEAD_SOURCES)) {
         return { isValid: false, errors: ['Invalid lead_source value.'] };
     }
-    if (!isAllowed(enquiry_status, ENQUIRY_STATUSES)) {
+    if (!enquiryStatusCode) {
         return { isValid: false, errors: ['Invalid enquiry_status value.'] };
     }
     if (!isAllowed(follow_up_required, YES_NO_VALUES)) {
@@ -130,11 +161,11 @@ const validateInquiryPayload = (body) => {
         }
     }
 
-    if (enquiry_status === 'Lost / Cancelled' && !lost_cancelled_remark?.trim()) {
+    if (enquiryStatusCode === 'LCN' && !lost_cancelled_remark?.trim()) {
         return { isValid: false, errors: ['lost_cancelled_remark is required when enquiry_status is Lost / Cancelled.'] };
     }
 
-    return { isValid: true, errors: [] };
+    return { isValid: true, errors: [], enquiryStatusCode };
 };
 
 const buildInquiryRecord = (body, files = {}, existing = {}) => {
@@ -184,7 +215,8 @@ const buildInquiryRecord = (body, files = {}, existing = {}) => {
     const followUpIsYes = follow_up_required === 'Yes';
     const siteVisitIsYes = site_visit_required === 'Yes';
     const buyFromUs = charger_availability === 'buy_from_us';
-    const isLost = enquiry_status === 'Lost / Cancelled';
+    const enquiryStatusCode = resolveEnquiryStatus(enquiry_status);
+    const isLost = enquiryStatusCode === 'LCN';
 
     return {
         customer_name,
@@ -220,7 +252,7 @@ const buildInquiryRecord = (body, files = {}, existing = {}) => {
         final_amount: parseDecimal(final_amount),
         completion_certificate: completionCertificate,
         charger_purchase_invoice: purchaseInvoice,
-        enquiry_status,
+        enquiry_status: enquiryStatusCode,
         lost_cancelled_remark: isLost ? (lost_cancelled_remark || null) : null,
     };
 };
@@ -247,9 +279,10 @@ export const chargerInstallationInquiryList = asyncHandler(async (req, resp) => 
             whereValues.push(lead_source);
             whereOperators.push('=');
         }
-        if (enquiry_status) {
+        const enquiryStatusCode = resolveEnquiryStatus(enquiry_status);
+        if (enquiryStatusCode) {
             whereFields.push('enquiry_status');
-            whereValues.push(enquiry_status);
+            whereValues.push(enquiryStatusCode);
             whereOperators.push('=');
         }
         if (site_visit_status) {
@@ -284,11 +317,16 @@ export const chargerInstallationInquiryList = asyncHandler(async (req, resp) => 
             whereOperator: whereOperators,
         });
 
+        const data = (result.data || []).map((row) => ({
+            ...row,
+            enquiry_status: enquiryStatusLabel(row.enquiry_status),
+        }));
+
         return resp.json({
             status: 1,
             code: 200,
             message: ['Inquiry list fetched successfully!'],
-            data: result.data,
+            data,
             total_page: result.totalPage,
             total: result.total,
         });
@@ -333,6 +371,7 @@ export const chargerInstallationInquiryDetails = asyncHandler(async (req, resp) 
         }
 
         attachFileUrls(inquiry);
+        inquiry.enquiry_status = enquiryStatusLabel(inquiry.enquiry_status);
 
         return resp.json({
             status: 1,

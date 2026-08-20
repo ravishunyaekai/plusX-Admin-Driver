@@ -88,7 +88,7 @@ export const login = async (req, resp) => {
 
 /**
  * Community manager dashboard
- * Returns resident count and charger count for the logged-in manager's community
+ * Returns resident, charger and booking count for the logged-in manager's community
  */
 export const getDashboardData = asyncHandler(async (req, resp) => {
     try {
@@ -107,9 +107,14 @@ export const getDashboardData = asyncHandler(async (req, resp) => {
             SELECT
                 (SELECT COUNT(*) FROM community_resident WHERE community_id = ?) AS total_residents,
                 (SELECT COUNT(*) FROM community_chargers WHERE community_id = ?) AS total_chargers,
+                (SELECT COUNT(*) FROM scan_charger_booking
+                    WHERE JSON_UNQUOTE(JSON_EXTRACT(resident_data, '$.resident_id')) IN (
+                        SELECT resident_id FROM community_resident WHERE community_id = ?
+                    )
+                ) AS total_charger_bookings,
                 (SELECT community_name FROM community_list WHERE community_id = ?) AS community_name,
                 (SELECT area_name FROM community_list WHERE community_id = ?) AS area_name
-        `, [community_id, community_id, community_id, community_id]);
+        `, [community_id, community_id, community_id, community_id, community_id]);
 
         return resp.json({
             status  : 1,
@@ -121,6 +126,7 @@ export const getDashboardData = asyncHandler(async (req, resp) => {
                 area_name       : counts[0]?.area_name || '',
                 total_residents : counts[0]?.total_residents || 0,
                 total_chargers  : counts[0]?.total_chargers || 0,
+                total_charger_bookings : counts[0]?.total_charger_bookings || 0,
             },
         });
     } catch (error) {

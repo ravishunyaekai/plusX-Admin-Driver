@@ -5,6 +5,9 @@ import { authenticateCommunityManager } from "../middleware/community/authentica
 import { login, logout, getDashboardData } from "../controller/community/AuthController.js";
 import { communityDetail } from "../controller/community/CommunityController.js";
 import { residentList, residentDetail } from "../controller/community/ResidentController.js";
+import { bookingList, bookingDetail } from "../controller/community/BookingController.js";
+import { chargerList, chargerDetail } from "../controller/community/ChargerController.js";
+import { invoiceList, invoiceDetail } from "../controller/community/InvoiceController.js";
 
 const router = Router();
 
@@ -24,6 +27,15 @@ const communityRoutes = [
     { method: 'post', path: '/community-details', handler: communityDetail },
     { method: 'post', path: '/resident-list',     handler: residentList },
     { method: 'post', path: '/resident-details',  handler: residentDetail },
+
+    { method: 'post', path: '/booking-list',     handler: bookingList },
+    { method: 'post', path: '/booking-details',  handler: bookingDetail },
+
+    { method: 'post', path: '/community-charger-list',    handler: chargerList },
+    { method: 'post', path: '/community-charger-details', handler: chargerDetail },
+
+    { method: 'post', path: '/invoice-list',               handler: invoiceList },
+    { method: 'post', path: '/invoice-details',            handler: invoiceDetail },
 ];
 
 communityRoutes.forEach(({ method, path, handler }) => {

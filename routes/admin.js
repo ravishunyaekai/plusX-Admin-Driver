@@ -18,6 +18,7 @@ import {
 import { addPublicCharger, editPublicCharger, stationDetail, stationList, deletePublicCharger, deletePublicChargerGallery, stationData } from "../controller/admin/PublicChargerController.js";
 
 import { chargerInstallationDetails, chargerInstallationList, eVChargerAdd, eVChargerList, chargerBrandList, chargerBrandCreate, chargerBrandUpdate, allChargerBrand, evChargerDetails, eVChargerEdit, AccessoriesAdd, AccessoriesList, AccessoriesDetails, AccessoriesEdit, deleteEVChargerGallery, PurchaseHistoryAdd, PurchaseHistoryList, PurchaseHistoryDetails, PurchaseHistoryEdit  } from "../controller/admin/ChargerInstallationController.js";
+import { chargerInstallationInquiryList, chargerInstallationInquiryDetails, chargerInstallationInquiryAdd, chargerInstallationInquiryEdit } from "../controller/admin/ChargerInstallationInquiryController.js";
 
 import { rsaList, rsaData, rsaAdd, rsaUpdate, rsaDelete, rsaStatusChange, driverBookingList, allRsaList, driverLocationList } from "../controller/admin/RsaController.js";
 
@@ -109,6 +110,12 @@ const adminRoutes = [
     /* Charger Installation */
     { method: 'post', path: '/charger-installation-list',    handler: chargerInstallationList },
     { method: 'post', path: '/charger-installation-details', handler: chargerInstallationDetails },
+
+    /* Charger Installation Inquiry Tracking */
+    { method: 'post', path: '/charger-installation-inquiry-list',    handler: chargerInstallationInquiryList },
+    { method: 'post', path: '/charger-installation-inquiry-details', handler: chargerInstallationInquiryDetails },
+    { method: 'post', path: '/charger-installation-inquiry-add',     handler: chargerInstallationInquiryAdd },
+    { method: 'post', path: '/charger-installation-inquiry-edit',    handler: chargerInstallationInquiryEdit },
     
     /* RSA Routes */
     { method: 'post',  path: '/rsa-list',          handler: rsaList },
@@ -278,6 +285,9 @@ const uploadRules = {
 
     '/add-purchase-history' : { folder: 'charger-installation', fields: ['purchase_invoice_pdf', 'installation_invoice_pdf', 'completion_certificate_pdf'], maxCount: 3},
     '/purchase-history-edit' : { folder: 'charger-installation', fields: ['purchase_invoice_pdf', 'installation_invoice_pdf', 'completion_certificate_pdf'], maxCount: 3},
+
+    '/charger-installation-inquiry-add'  : { folder: 'charger-installation-inquiry', fields: ['completion_certificate', 'charger_purchase_invoice'], maxCount: 2 },
+    '/charger-installation-inquiry-edit' : { folder: 'charger-installation-inquiry', fields: ['completion_certificate', 'charger_purchase_invoice'], maxCount: 2 },
     '/charge-share-accept'  : { folder: 'charge-share-images', fields: ['charger_image'], maxCount: 1 },
 };
 

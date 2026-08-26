@@ -44,12 +44,40 @@ export const couponList = asyncHandler(async (req, resp) => {
         whereValues.push(start, end);
         whereOperators.push('>=', '<=');
     }
+    // Old code (kept for reference)
+    // - Sorted only by end_date / status (expired could still appear as Active)
+    // - Compared formatted end_date string with date string (unreliable expiry check)
+    // - Usage field key was counpon_used
+    // const result = await getPaginatedData({
+    //     tableName: 'coupon',
+    //     columns: `id, coupan_name, coupan_code, user_per_user, coupan_percentage, ${formatDateInQuery(['end_date'])}, status, booking_for, (select count(*) from coupon_usage as cu where cu.coupan_code = coupon.coupan_code) as counpon_used`,
+    //     liveSearchFields : ['id', 'coupan_name', 'coupan_code',],
+    //     liveSearchTexts  : [search_text, search_text, search_text],
+    //     sortColumn       : 'end_date DESC, status DESC',
+    //     sortOrder        : '',
+    //     page_no,
+    //     limit: 10,
+    //     whereField: whereFields,
+    //     whereValue: whereValues,
+    //     whereOperator: whereOperators
+    // });
+    // const currDate = moment().utcOffset(4).format('YYYY-MM-DD');
+    // for (const res of result.data) {
+    //     
+    //     res.status = (res.end_date < currDate) ? 'Expired' : (res.status == 1 ) ? "Active" : "Inactive"
+    // }
+
+    // New code:
+    // 1) end_date_raw  -> real DB date used for reliable expiry check
+    // 2) is_expired    -> 1 if expired, 0 if not (used to sort active first, expired last)
+    // 3) usage_count   -> how many times this coupon code was used (from coupon_usage)
     const result = await getPaginatedData({
         tableName: 'coupon',
-        columns: `id, coupan_name, coupan_code, user_per_user, coupan_percentage, ${formatDateInQuery(['end_date'])}, status, booking_for, (select count(*) from coupon_usage as cu where cu.coupan_code = coupon.coupan_code) as counpon_used`,
+        columns: `id, coupan_name, coupan_code, user_per_user, coupan_percentage, ${formatDateInQuery(['end_date'])}, end_date as end_date_raw, status, booking_for, CASE WHEN end_date < CURDATE() THEN 1 ELSE 0 END as is_expired, (select count(*) from coupon_usage as cu where cu.coupan_code = coupon.coupan_code) as usage_count`,
         liveSearchFields : ['id', 'coupan_name', 'coupan_code',],
         liveSearchTexts  : [search_text, search_text, search_text],
-        sortColumn       : 'end_date DESC, status DESC',
+        // Active/non-expired first (is_expired=0), then expired (is_expired=1); within that, active status then latest end_date
+        sortColumn       : 'is_expired ASC, status DESC, end_date DESC',
         sortOrder        : '',
         page_no,
         limit: 10,
@@ -57,10 +85,15 @@ export const couponList = asyncHandler(async (req, resp) => {
         whereValue: whereValues,
         whereOperator: whereOperators
     });
-    const currDate = moment().utcOffset(4).format('YYYY-MM-DD');
+    // Compare real end_date (not formatted display string) so Expired status is correct
+    const currDate = moment().startOf('day');
     for (const res of result.data) {
-        
-        res.status = (res.end_date < currDate) ? 'Expired' : (res.status == 1 ) ? "Active" : "Inactive"
+        const isExpired = moment(res.end_date_raw).endOf('day').isBefore(currDate);
+        // If past end_date -> Expired; else keep DB status as Active/Inactive
+        res.status = isExpired ? 'Expired' : (res.status == 1 ? "Active" : "Inactive");
+        // Remove helper fields from API response (only used for sort / expiry check)
+        delete res.end_date_raw;
+        delete res.is_expired;
     }
     return resp.json({
         status     : 1,

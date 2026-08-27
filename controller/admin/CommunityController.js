@@ -60,15 +60,6 @@ export const communityDetail = asyncHandler(async (req, resp) => {
         WHERE community_id = ?`, [ community_id ]
     );
 
-    const [residents] = await db.execute(`
-        SELECT 
-            resident_id, resident_name, resident_mobile, resident_email,
-            monthly_session_allocation, '0' AS session_used, kwh_allocated, '0' AS kwh_used, status
-        FROM community_resident 
-        WHERE community_id = ?
-        ORDER BY id DESC`, [ community_id ]
-    );
-
     // Temporarily disabled for live — community manager details
     // const manager = await queryDB(`
     //     SELECT 
@@ -83,7 +74,6 @@ export const communityDetail = asyncHandler(async (req, resp) => {
         message : ["Community Details fetched successfully!"],
         data    : communities,
         chargers,
-        residents,
         // manager,
     });
 });
@@ -276,7 +266,7 @@ export const communityAreaList = asyncHandler(async (req, resp) => {
 export const addResident = asyncHandler(async (req, resp) => {
     try {
         const {
-            resident_name, mobile_number, resident_email, community_id, address, monthly_session_allocation,
+            resident_name, mobile_number, country_code = '+971', resident_email, community_id, address, monthly_session_allocation,
             alloted_time, kwh_allocated, per_kwh_charge, extra_charge
         } = req.body;
 
@@ -313,9 +303,9 @@ export const addResident = asyncHandler(async (req, resp) => {
         }
         const insert = await insertRecord('community_resident',
         [
-            'resident_id', 'community_id', 'resident_name', 'resident_mobile', 'resident_email', 'address', 'monthly_session_allocation', 'alloted_time', 'kwh_allocated', 'per_kwh_charge', 'extra_charge', 'status',
+            'resident_id', 'community_id', 'resident_name', 'country_code', 'resident_mobile', 'resident_email', 'address', 'monthly_session_allocation', 'alloted_time', 'kwh_allocated', 'per_kwh_charge', 'extra_charge', 'status',
         ], [
-            'resident_id', community_id, resident_name, mobile_number, resident_email, address, monthly_session_allocation, alloted_time, kwh_allocated, per_kwh_charge, extra_charge, 1, 
+            'resident_id', community_id, resident_name, country_code || '+971', mobile_number, resident_email, address, monthly_session_allocation, alloted_time, kwh_allocated, per_kwh_charge, extra_charge, 1, 
         ]);
 
         if(insert.affectedRows == 0) return resp.json({status:0, message: "Failed to add Please try again after some time."});
@@ -332,7 +322,7 @@ export const addResident = asyncHandler(async (req, resp) => {
 
 export const residentList = async (req, resp) => {
     try {
-        const { page_no = 1, search_text = '' } = mergeParam(req);
+        const { page_no = 1, search_text = '', community_id = '' } = mergeParam(req);
         
         const params = {
             tableName  : ' community_resident as cr',
@@ -348,6 +338,11 @@ export const residentList = async (req, resp) => {
             whereOperator    : [],
             joinTable        : ' community_list as cm ',
             joinCondition    : ' cm.community_id = cr.community_id ',
+        }
+        if (community_id) {
+            params.whereField.push('cr.community_id');
+            params.whereValue.push(community_id);
+            params.whereOperator.push('=');
         }
         const result = await getPaginatedData(params);
          
@@ -375,7 +370,7 @@ export const residentDetail = asyncHandler(async (req, resp) => {
     
     const residents = await queryDB(`
         SELECT 
-            resident_id, resident_name, resident_mobile, resident_email, address, monthly_session_allocation, alloted_time, kwh_allocated, per_kwh_charge, extra_charge, ${formatDateTimeInQuery(['rs.created_at'])}, rs.status,
+            resident_id, resident_name, country_code, resident_mobile, resident_email, address, monthly_session_allocation, alloted_time, kwh_allocated, per_kwh_charge, extra_charge, ${formatDateTimeInQuery(['rs.created_at'])}, rs.status,
             community_name, area_name, rs.community_id
         FROM community_resident as rs
         LEFT JOIN community_list as cm ON cm.community_id = rs.community_id
@@ -408,7 +403,7 @@ export const residentSearch = asyncHandler(async (req, resp) => {
 export const editResident = asyncHandler(async (req, resp) => {
     try {
         const {
-            resident_id, resident_name, mobile_number, resident_email, community_id, address, monthly_session_allocation,
+            resident_id, resident_name, mobile_number, country_code = '+971', resident_email, community_id, address, monthly_session_allocation,
             alloted_time, kwh_allocated, per_kwh_charge, extra_charge
         } = req.body;
 
@@ -447,6 +442,7 @@ export const editResident = asyncHandler(async (req, resp) => {
         const updtObj = { 
             resident_name,
             resident_email,
+            country_code    : country_code || '+971',
             resident_mobile : mobile_number, 
             community_id, 
             address, 

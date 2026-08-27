@@ -76,7 +76,7 @@ export const chargerInstallationList = asyncHandler(async (req, resp) => {
 
 export const chargerInstallationDetails = asyncHandler(async (req, resp) => {     
     const { request_id, booking_type } = req.body;
-    const { isValid, errors } = validateFields(req.body, { request_id : ["required"] });
+    const { isValid, errors } = validateFields(req.body, { request_id : ["required"], booking_type : ["required"] });
     if (!isValid) {
         return resp.json({ status: 0, code: 422, message: errors });
     }
@@ -89,8 +89,16 @@ export const chargerInstallationDetails = asyncHandler(async (req, resp) => {
         FCB : "ev_charger_booiking_history", 
         AB  : "ev_accessories_booiking_history",
         CIS : "charging_installation_service_history"
-    } 
-    const chargerQuery = (booking_type != "CIS" ) ? ', (SELECT charger_name FROM ev_charger as ch WHERE ch.charger_id = chi.charger_id) as charger_name' : '';
+    }
+    if (!table[booking_type]) {
+        return resp.json({ status: 0, code: 422, message: ["Invalid booking_type. Use FCB, AB or CIS."] });
+    }
+    //query failed because charger_id uses different text comparison rules in ev_charger vs booking tables.
+    // const chargerQuery = (booking_type != "CIS" ) ? ', (SELECT charger_name FROM ev_charger as ch WHERE ch.charger_id = chi.charger_id) as charger_name' : '';
+    //force same text comparison so charger_name lookup works.
+    const chargerQuery = (booking_type != "CIS" )
+        ? `, (SELECT charger_name FROM ev_charger as ch WHERE ch.charger_id COLLATE utf8mb4_unicode_ci = chi.charger_id) as charger_name`
+        : '';
 
     const orderData = await queryDB(`
         SELECT 

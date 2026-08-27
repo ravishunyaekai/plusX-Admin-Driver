@@ -60,6 +60,15 @@ export const communityDetail = asyncHandler(async (req, resp) => {
         WHERE community_id = ?`, [ community_id ]
     );
 
+    const [residents] = await db.execute(`
+        SELECT 
+            resident_id, resident_name, resident_mobile, resident_email,
+            monthly_session_allocation, '0' AS session_used, kwh_allocated, '0' AS kwh_used, status
+        FROM community_resident 
+        WHERE community_id = ?
+        ORDER BY id DESC`, [ community_id ]
+    );
+
     // Temporarily disabled for live — community manager details
     // const manager = await queryDB(`
     //     SELECT 
@@ -74,6 +83,7 @@ export const communityDetail = asyncHandler(async (req, resp) => {
         message : ["Community Details fetched successfully!"],
         data    : communities,
         chargers,
+        residents,
         // manager,
     });
 });

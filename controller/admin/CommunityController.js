@@ -710,7 +710,7 @@ export const sessionList = async (req, resp) => {
         const params = {
             tableName  : ' scan_charger_booking',
             columns    : `booking_id, JSON_UNQUOTE(JSON_EXTRACT(resident_data, '$.resident_name')) AS resident_name, JSON_UNQUOTE(JSON_EXTRACT(resident_data, '$.area_name')) AS area_name, charger_id, total_consumption, total_duration, ${formatDateTimeInQuery(['created_at'])},
-            CASE WHEN status = 'S' THEN 'Start' WHEN status = 'C' THEN 'Stoped' ELSE 'Unknown' END AS status`,
+            CASE WHEN status = 'S' THEN 'Started' WHEN status = 'C' THEN 'Completed' ELSE 'Unknown' END AS status`,
             sortColumn : 'id',
             sortOrder  : 'DESC',
             page_no,

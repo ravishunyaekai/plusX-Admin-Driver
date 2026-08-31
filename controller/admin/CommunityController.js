@@ -8,6 +8,8 @@ import moment from "moment";
 // import bcrypt from "bcryptjs";
 
 import { tryCatchErrorHandler } from "../../middleware/errorHandler.js";
+
+const formatUsageToThreeDecimals = (value) => parseFloat(value || 0).toFixed(3);
   
 export const communityList = async (req, resp) => {
     try {
@@ -323,38 +325,151 @@ export const addResident = asyncHandler(async (req, resp) => {
 export const residentList = async (req, resp) => {
     try {
         const { page_no = 1, search_text = '', community_id = '' } = mergeParam(req);
-        
-        const params = {
-            tableName  : ' community_resident as cr',
-            columns    : `resident_id, resident_name, community_name, area_name, monthly_session_allocation, '0' AS session_used, kwh_allocated, '0' AS kwh_used `,
-            sortColumn : 'cr.id',
-            sortOrder  : 'DESC',
-            page_no,
-            liveSearchFields : ['resident_name', 'resident_mobile'],
-            liveSearchTexts  : [search_text, search_text],
-            limit            : 10,
-            whereField       : [],
-            whereValue       : [],
-            whereOperator    : [],
-            joinTable        : ' community_list as cm ',
-            joinCondition    : ' cm.community_id = cr.community_id ',
-        }
+
+        const limit  = 10;
+        const page   = (isNaN(page_no) || page_no < 1) ? 1 : parseInt(page_no, 10);
+        const offset = (page * limit) - limit;
+
+        const monthStart = moment().startOf('month').subtract(4, 'hours').format('YYYY-MM-DD HH:mm:ss');
+        const monthEnd   = moment().endOf('month').subtract(4, 'hours').format('YYYY-MM-DD HH:mm:ss');
+
+        const bookingMatchSql = `
+            scb.status = 'C'
+            AND scb.created_at >= ? AND scb.created_at <= ?
+            AND (
+                JSON_UNQUOTE(JSON_EXTRACT(scb.resident_data, '$.resident_id')) = cr.resident_id
+                OR scb.rider_id IN (SELECT r.rider_id FROM riders AS r WHERE r.rider_mobile = cr.resident_mobile)
+            )`;
+
+        const whereParts = ['1 = 1'];
+        const queryParams = [monthStart, monthEnd, monthStart, monthEnd];
+
         if (community_id) {
-            params.whereField.push('cr.community_id');
-            params.whereValue.push(community_id);
-            params.whereOperator.push('=');
+            whereParts.push('cr.community_id = ?');
+            queryParams.push(community_id);
         }
-        const result = await getPaginatedData(params);
-         
+
+        if (search_text && String(search_text).trim()) {
+            const like = `%${String(search_text).trim()}%`;
+            whereParts.push('(cr.resident_id LIKE ? OR cr.resident_name LIKE ? OR cr.resident_mobile LIKE ?)');
+            queryParams.push(like, like, like);
+        }
+
+        const whereSql = `WHERE ${whereParts.join(' AND ')}`;
+
+        const [rows] = await db.execute(`
+            SELECT SQL_CALC_FOUND_ROWS
+                cr.resident_id,
+                cr.resident_name,
+                cm.community_name,
+                cm.area_name,
+                cr.monthly_session_allocation,
+                cr.kwh_allocated,
+                (SELECT COUNT(*)
+                    FROM scan_charger_booking AS scb
+                    WHERE ${bookingMatchSql}) AS session_used,
+                (SELECT COALESCE(SUM(scb.total_consumption), 0)
+                    FROM scan_charger_booking AS scb
+                    WHERE ${bookingMatchSql}) AS kwh_used
+            FROM community_resident AS cr
+            LEFT JOIN community_list AS cm ON cm.community_id = cr.community_id
+            ${whereSql}
+            ORDER BY cr.id DESC
+            LIMIT ${offset}, ${limit}
+        `, queryParams);
+
+        const [[{ total }]] = await db.query('SELECT FOUND_ROWS() AS total');
+        const totalPage = Math.max(Math.ceil(total / limit), 1);
+
+        const data = rows.map((row) => ({
+            ...row,
+            session_used : formatUsageToThreeDecimals(row.session_used),
+            kwh_used     : formatUsageToThreeDecimals(row.kwh_used),
+        }));
+
         return resp.json({
             status     : 1,
             code       : 200,
             message    : ["Community List fetch successfully!"],
-            data       : result.data,
-            total_page : result.totalPage,
-            total      : result.total,
+            data,
+            total_page : totalPage,
+            total,
         });
- 
+
+    } catch (error) {
+        console.log('Error fetching station list:', error);
+        tryCatchErrorHandler(req.originalUrl, error, resp );
+    }
+};
+
+export const residentListOld = async (req, resp) => {
+    try {
+        const { page_no = 1, search_text = '', community_id = '' } = mergeParam(req);
+
+        const limit  = 10;
+        const page   = (isNaN(page_no) || page_no < 1) ? 1 : parseInt(page_no, 10);
+        const offset = (page * limit) - limit;
+
+        const monthStart = moment().startOf('month').subtract(4, 'hours').format('YYYY-MM-DD HH:mm:ss');
+        const monthEnd   = moment().endOf('month').subtract(4, 'hours').format('YYYY-MM-DD HH:mm:ss');
+
+        const bookingMatchSql = `
+            scb.status = 'C'
+            AND scb.created_at >= ? AND scb.created_at <= ?
+            AND (
+                JSON_UNQUOTE(JSON_EXTRACT(scb.resident_data, '$.resident_id')) = cr.resident_id
+                OR scb.rider_id IN (SELECT r.rider_id FROM riders AS r WHERE r.rider_mobile = cr.resident_mobile)
+            )`;
+
+        const whereParts = ['1 = 1'];
+        const queryParams = [monthStart, monthEnd, monthStart, monthEnd];
+
+        if (community_id) {
+            whereParts.push('cr.community_id = ?');
+            queryParams.push(community_id);
+        }
+
+        if (search_text && String(search_text).trim()) {
+            const like = `%${String(search_text).trim()}%`;
+            whereParts.push('(cr.resident_id LIKE ? OR cr.resident_name LIKE ? OR cr.resident_mobile LIKE ?)');
+            queryParams.push(like, like, like);
+        }
+
+        const whereSql = `WHERE ${whereParts.join(' AND ')}`;
+
+        const [rows] = await db.execute(`
+            SELECT SQL_CALC_FOUND_ROWS
+                cr.resident_id,
+                cr.resident_name,
+                cm.community_name,
+                cm.area_name,
+                cr.monthly_session_allocation,
+                cr.kwh_allocated,
+                (SELECT COUNT(*)
+                    FROM scan_charger_booking AS scb
+                    WHERE ${bookingMatchSql}) AS session_used,
+                (SELECT COALESCE(SUM(scb.total_consumption), 0)
+                    FROM scan_charger_booking AS scb
+                    WHERE ${bookingMatchSql}) AS kwh_used
+            FROM community_resident AS cr
+            LEFT JOIN community_list AS cm ON cm.community_id = cr.community_id
+            ${whereSql}
+            ORDER BY cr.id DESC
+            LIMIT ${offset}, ${limit}
+        `, queryParams);
+
+        const [[{ total }]] = await db.query('SELECT FOUND_ROWS() AS total');
+        const totalPage = Math.max(Math.ceil(total / limit), 1);
+
+        return resp.json({
+            status     : 1,
+            code       : 200,
+            message    : ["Community List fetch successfully!"],
+            data       : rows,
+            total_page : totalPage,
+            total      : total,
+        });
+
     } catch (error) {
         console.log('Error fetching station list:', error);
         tryCatchErrorHandler(req.originalUrl, error, resp );
@@ -710,7 +825,8 @@ export const sessionList = async (req, resp) => {
         const params = {
             tableName  : ' scan_charger_booking',
             columns    : `booking_id, JSON_UNQUOTE(JSON_EXTRACT(resident_data, '$.resident_name')) AS resident_name, JSON_UNQUOTE(JSON_EXTRACT(resident_data, '$.area_name')) AS area_name, charger_id, total_consumption, total_duration, ${formatDateTimeInQuery(['created_at'])},
-            CASE WHEN status = 'S' THEN 'Started' WHEN status = 'C' THEN 'Completed' ELSE 'Unknown' END AS status`,
+            -- CASE WHEN status = 'S' THEN 'Started' WHEN status = 'C' THEN 'Completed' ELSE 'Unknown' END AS status
+            CASE WHEN status = 'S' THEN 'Started' WHEN status = 'F' THEN 'Failed' WHEN status = 'C' THEN 'Completed' ELSE 'Unknown' END AS status`,
             sortColumn : 'id',
             sortOrder  : 'DESC',
             page_no,
@@ -766,7 +882,8 @@ export const sessionDetail = async (req, resp) => {
         const invoiceData = await queryDB(`
             SELECT 
                 booking_id, charger_id, total_consumption, total_duration, extra_minutes, start_time, end_time, start_kwh, end_kwh, ${formatDateTimeInQuery(['created_at'])}, 
-                CASE WHEN status = "S" THEN 'Started' ELSE 'Stoped' END AS session_status,
+                -- CASE WHEN status = "S" THEN 'Started' ELSE 'Completed' END AS session_status,
+                CASE WHEN status = "S" THEN 'Started' WHEN status = "F" THEN 'Failed' WHEN status = "C" THEN 'Completed' ELSE 'Unknown' END AS session_status,
                 JSON_UNQUOTE(JSON_EXTRACT(resident_data, '$.resident_name')) AS resident_name,
                 JSON_UNQUOTE(JSON_EXTRACT(resident_data, '$.resident_mobile')) AS resident_mobile,
                 JSON_UNQUOTE(JSON_EXTRACT(resident_data, '$.community_name')) AS community_name, 

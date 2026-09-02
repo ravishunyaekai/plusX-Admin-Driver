@@ -6,7 +6,7 @@ import { login, logout, forgotPassword, updatePassword } from "../controller/adm
 
 import { getDashboardData, riderList, riderDetails, deleteRider, notificationList, locationList, areaList, deletedRiderList, bookingAreaList, topRatedAreaList, riderBookingLists } from "../controller/admin/AdminController.js";
 
-import { chargerBookingList, chargerBookingDetails, assignBooking, invoiceList, invoiceDetails, slotList, addSlot, editSlot, deleteSlot, slotDetails, adminCancelPCBooking, customerChargerBookingList, failedChargerBookingList, failedchargerBookingDetails
+import { chargerBookingList, chargerBookingDetails, assignBooking, invoiceList, invoiceDetails, slotList, addSlot, editSlot, deleteSlot, slotDetails, adminCancelPCBooking, customerChargerBookingList, failedChargerBookingList, failedchargerBookingDetails, AddChargingPackage, UpdateChargingPackage, ChargingPackageList, ChargingPackageDetails, deletePackage
 } from "../controller/admin/PortableChargerController.js";
 
 import { handleFileUpload } from "../fileUpload.js";
@@ -84,7 +84,12 @@ const adminRoutes = [
     { method: 'post',   path: '/customer-charger-booking-list',   handler: customerChargerBookingList },
     { method: 'post',   path: '/failed-charger-booking-list',     handler: failedChargerBookingList },
     { method: 'post',   path: '/failed-charger-booking-details',  handler: failedchargerBookingDetails },
-    
+    { method: 'post',   path: '/add-charging-package',            handler: AddChargingPackage },
+    { method: 'post',   path: '/update-charging-package',           handler: UpdateChargingPackage },
+    { method: 'post',   path: '/charging-package-list',            handler: ChargingPackageList },
+    { method: 'post',   path: '/charging-package-details',         handler: ChargingPackageDetails },
+    { method: 'post',   path: '/delete-charging-package',            handler: deletePackage },
+
     /* Pick & Drop */
     { method: 'post',   path: '/pick-and-drop-booking-list',     handler: bookingList },
     { method: 'post',   path: '/pick-and-drop-booking-details',  handler: bookingDetails },

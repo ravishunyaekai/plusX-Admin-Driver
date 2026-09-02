@@ -2,6 +2,7 @@ import db from '../../config/db.js';
 import dotenv from 'dotenv';
 import moment from 'moment';
 import { mergeParam, asyncHandler, convertTo24HourFormat, formatDateInQuery, createNotification, pushNotification, formatDateTimeInQuery} from '../../utils.js';
+import { tryCatchErrorHandler } from '../../middleware/errorHandler.js';
 import { queryDB, getPaginatedData, insertRecord, updateRecord } from '../../dbUtils.js';
 import validateFields from "../../validation.js";
 import generateUniqueId from 'generate-unique-id';
@@ -96,22 +97,35 @@ export const chargerBookingDetails = async (req, resp) => {
         if (!booking_id) {
             return resp.json({ status : 0, code : 400, message : ['Booking ID is required.'] });
         }
-        const [[bookingResult]] = await db.execute(`
+        const [bookingRows] = await db.execute(`
             SELECT 
                 booking_id, rider_id, ${formatDateTimeInQuery(['created_at'])}, user_name, country_code, contact_no, status, address, latitude, area,
                 longitude, service_name, service_price, service_type, service_feature, ${formatDateInQuery(['slot_date'])}, slot_time, parking_number, parking_floor, 
                 (select concat(rsa_name, ",", country_code, "-", mobile) from rsa where rsa.rsa_id = portable_charger_booking.rsa_id) as rsa_data, vehicle_id, vehicle_data,
                 (select pod_name from pod_devices as pd where pd.pod_id = portable_charger_booking.pod_id) as pod_name,
-                (select count(*) from portable_charger_booking as pcb where pcb.rider_id = portable_charger_booking.rider_id and pcb.booking_id != portable_charger_booking.booking_id) as cust_booking_count, current_percent
+                (select count(*) from portable_charger_booking as pcb where pcb.rider_id = portable_charger_booking.rider_id and pcb.booking_id != portable_charger_booking.booking_id) as cust_booking_count, current_percent,
+                package_data
             FROM 
                 portable_charger_booking 
             WHERE 
                 booking_id = ?`, 
             [booking_id]
         ); 
-        if (bookingResult.length === 0) {
+        if (!bookingRows.length) {
             return resp.json({ status : 0, code : 404, message : ['Booking not found.'] });
-        } 
+        }
+
+        const bookingResult = bookingRows[0];
+
+        let package_data = bookingResult.package_data ?? null;
+        if (typeof package_data === 'string' && package_data !== '') {
+            try {
+                package_data = JSON.parse(package_data);
+            } catch {
+                package_data = null;
+            }
+        }
+        delete bookingResult.package_data;
         
         if(bookingResult.vehicle_data == '' || bookingResult.vehicle_data == null) {
             const vehicledata = await queryDB(`
@@ -163,6 +177,7 @@ export const chargerBookingDetails = async (req, resp) => {
             message : ["Booking details fetched successfully!"],
             data : {
                 booking : bookingResult,
+                package_data,
                 history,
                 feedBack
             }, 
@@ -850,6 +865,392 @@ export const failedchargerBookingDetails = async (req, resp) => {
             status  : 0, 
             code    : 500, 
             message : 'Error fetching booking details' 
+        });
+    }
+};
+
+/* Charging Packages */
+const CHARGING_PACKAGES_TABLE = 'portable_charger_charging_packages';
+
+const formatPackageRow = (row) => ({
+    ...row,
+    price: Number(row.price),
+    price_per_unit: Number(row.price_per_unit ?? 0),
+    service_fee: Number(row.service_fee ?? 0),
+});
+
+const generatePackageId = (lastSequence) => `PKG-${String(Number(lastSequence) + 1).padStart(3, '0')}`;
+
+const parsePackagePrice = (price) => {
+    const packagePrice = Number(price);
+    if (!Number.isFinite(packagePrice) || packagePrice <= 0) return null;
+    return packagePrice;
+};
+
+const parseOptionalAmount = (value, defaultValue = 0) => {
+    if (value == null || value === '') return defaultValue;
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount < 0) return null;
+    return amount;
+};
+
+const getNextPackageId = async () => {
+    const [rows] = await db.execute(
+        `SELECT IFNULL(MAX(CAST(SUBSTRING(package_id, 5) AS UNSIGNED)), 0) AS lastSequence
+         FROM ${CHARGING_PACKAGES_TABLE}
+         WHERE package_id LIKE 'PKG-%'`
+    );
+
+    return generatePackageId(rows[0].lastSequence);
+};
+
+export const getChargingPackageByPackageId = async (package_id) => {
+    const [rows] = await db.execute(
+        `SELECT package_id, package_name, charging_capacity, price, price_per_unit, service_fee, status
+         FROM ${CHARGING_PACKAGES_TABLE}
+         WHERE package_id=? AND is_deleted=0 AND status=1
+         LIMIT 1`,
+        [package_id]
+    );
+
+    return rows.length ? formatPackageRow(rows[0]) : null;
+};
+
+export const AddChargingPackage = asyncHandler(async (req, resp) => {
+    try {
+        const {
+            package_name,
+            charging_capacity,
+            price,
+            price_per_unit,
+            service_fee,
+            status = 1,
+        } = req.body;
+
+        const { isValid, errors } = validateFields(
+            {
+                package_name,
+                charging_capacity,
+                price,
+            },
+            {
+                package_name: ["required"],
+                charging_capacity: ["required"],
+                price: ["required"],
+            }
+        );
+
+        if (!isValid)
+            return resp.json({ status: 0, code: 422, message: errors });
+
+        const packagePrice = parsePackagePrice(price);
+        if (packagePrice == null) {
+            return resp.json({
+                status: 0,
+                code: 422,
+                message: ["Price must be a number greater than 0."]
+            });
+        }
+
+        const packagePricePerUnit = parseOptionalAmount(price_per_unit);
+        if (packagePricePerUnit == null) {
+            return resp.json({
+                status: 0,
+                code: 422,
+                message: ["Price per unit must be a number greater than or equal to 0."]
+            });
+        }
+
+        const packageServiceFee = parseOptionalAmount(service_fee);
+        if (packageServiceFee == null) {
+            return resp.json({
+                status: 0,
+                code: 422,
+                message: ["Service fee must be a number greater than or equal to 0."]
+            });
+        }
+
+        const [checkPackage] = await db.execute(
+            `SELECT id FROM ${CHARGING_PACKAGES_TABLE} WHERE package_name=? AND is_deleted=0`,
+            [package_name]
+        );
+
+        if (checkPackage.length > 0)
+            return resp.json({
+                status: 0,
+                message: "Package already exists."
+            });
+
+        const package_id = await getNextPackageId();
+
+        const insert = await insertRecord(
+            CHARGING_PACKAGES_TABLE,
+            [
+                "package_id",
+                "package_name",
+                "charging_capacity",
+                "price",
+                "price_per_unit",
+                "service_fee",
+                "status"
+            ],
+            [
+                package_id,
+                package_name,
+                charging_capacity,
+                packagePrice,
+                packagePricePerUnit,
+                packageServiceFee,
+                status
+            ]
+        );
+
+        return resp.json({
+            status: insert.affectedRows ? 1 : 0,
+            code: 200,
+            message: insert.affectedRows
+                ? "Charging package added successfully."
+                : "Failed to add package.",
+            data: insert.affectedRows ? {
+                package_id,
+                package_name,
+                charging_capacity: Number(charging_capacity),
+                price: packagePrice,
+                price_per_unit: packagePricePerUnit,
+                service_fee: packageServiceFee,
+            } : null,
+        });
+
+    } catch (error) {
+        tryCatchErrorHandler(req.originalUrl, error, resp, "Something went wrong");
+    }
+});
+
+export const ChargingPackageList = asyncHandler(async (req, resp) => {
+    try {
+        const { page_no, search_text = '' } = req.body;
+
+        const { isValid, errors } = validateFields(req.body, {
+            page_no: ["required"]
+        });
+
+        if (!isValid) {
+            return resp.json({
+                status: 0,
+                code: 422,
+                message: errors
+            });
+        }
+
+        const result = await getPaginatedData({
+            tableName: CHARGING_PACKAGES_TABLE,
+            columns: `
+                id,
+                package_id,
+                package_name,
+                CAST(charging_capacity AS UNSIGNED) AS charging_capacity,
+                price,
+                price_per_unit,
+                service_fee,
+                status
+            `,
+            sortColumn: 'id',
+            sortOrder: 'DESC',
+            page_no,
+            limit: 10,
+            liveSearchFields: ['package_id', 'package_name'],
+            liveSearchTexts: [search_text, search_text],
+            whereField: ['is_deleted'],
+            whereValue: [0],
+        });
+
+        return resp.json({
+            status: 1,
+            code: 200,
+            message: ["Charging Package List fetched successfully!"],
+            data: result.data,
+            total_page: result.totalPage,
+            total: result.total
+        });
+
+    } catch (error) {
+        console.error("Error fetching charging package list:", error);
+        tryCatchErrorHandler(req.originalUrl, error, resp, "Something went wrong");
+    }
+});
+
+export const ChargingPackageDetails = asyncHandler(async (req, resp) => {
+    try {
+        const { id, package_id } = mergeParam(req);
+
+        if (!id && !package_id) {
+            return resp.json({
+                status: 0,
+                code: 422,
+                message: ["Package id or package_id is required."]
+            });
+        }
+
+        const [packageData] = await db.execute(
+            id
+                ? `SELECT * FROM ${CHARGING_PACKAGES_TABLE} WHERE id=? AND is_deleted=0`
+                : `SELECT * FROM ${CHARGING_PACKAGES_TABLE} WHERE package_id=? AND is_deleted=0`,
+            [id || package_id]
+        );
+
+        if (!packageData.length)
+            return resp.json({
+                status: 0,
+                message: "Package not found."
+            });
+
+        return resp.json({
+            status: 1,
+            code: 200,
+            data: formatPackageRow(packageData[0])
+        });
+
+    } catch (error) {
+        tryCatchErrorHandler(req.originalUrl, error, resp, "Something went wrong");
+    }
+});
+
+export const UpdateChargingPackage = asyncHandler(async (req, resp) => {
+    try {
+        const {
+            package_id,
+            package_name,
+            charging_capacity,
+            price,
+            price_per_unit,
+            service_fee,
+            status,
+        } = mergeParam(req);
+
+        const { isValid, errors } = validateFields(
+            {
+                package_id,
+                package_name,
+                charging_capacity,
+                price,
+            },
+            {
+                package_id: ["required"],
+                package_name: ["required"],
+                charging_capacity: ["required"],
+                price: ["required"],
+            }
+        );
+
+        if (!isValid)
+            return resp.json({
+                status: 0,
+                code: 422,
+                message: errors
+            });
+
+        const packagePrice = parsePackagePrice(price);
+        if (packagePrice == null) {
+            return resp.json({
+                status: 0,
+                code: 422,
+                message: ["Price must be a number greater than 0."]
+            });
+        }
+
+        const packagePricePerUnit = parseOptionalAmount(price_per_unit);
+        if (packagePricePerUnit == null) {
+            return resp.json({
+                status: 0,
+                code: 422,
+                message: ["Price per unit must be a number greater than or equal to 0."]
+            });
+        }
+
+        const packageServiceFee = parseOptionalAmount(service_fee);
+        if (packageServiceFee == null) {
+            return resp.json({
+                status: 0,
+                code: 422,
+                message: ["Service fee must be a number greater than or equal to 0."]
+            });
+        }
+
+        const updateData = {
+            package_name,
+            charging_capacity,
+            price: packagePrice,
+            price_per_unit: packagePricePerUnit,
+            service_fee: packageServiceFee,
+        };
+
+        if (status != null) {
+            updateData.status = status;
+        }
+
+        await updateRecord(
+            CHARGING_PACKAGES_TABLE,
+            updateData,
+            ["package_id"],
+            [package_id]
+        );
+
+        return resp.json({
+            status: 1,
+            code: 200,
+            message: "Package updated successfully.",
+            data: {
+                package_id,
+                package_name,
+                charging_capacity: Number(charging_capacity),
+                price: packagePrice,
+                price_per_unit: packagePricePerUnit,
+                service_fee: packageServiceFee,
+            },
+        });
+
+    } catch (error) {
+        tryCatchErrorHandler(req.originalUrl, error, resp, "Something went wrong");
+    }
+});
+
+export const deletePackage = async (req, resp) => {
+    try {
+        const { package_id } = req.body;
+
+        const { isValid, errors } = validateFields(req.body, {
+            package_id: ["required"]
+        });
+
+        if (!isValid) {
+            return resp.json({
+                status: 0,
+                code: 422,
+                message: errors
+            });
+        }
+
+        const [del] = await db.execute(
+            `UPDATE ${CHARGING_PACKAGES_TABLE}
+             SET is_deleted = 1
+             WHERE package_id = ?`,
+            [package_id]
+        );
+
+        return resp.json({
+            code: 200,
+            message: del.affectedRows > 0
+                ? ['Charging Package deleted successfully!']
+                : ['Oops! Something went wrong. Please try again.'],
+            status: del.affectedRows > 0 ? 1 : 0
+        });
+
+    } catch (err) {
+        console.error('Error deleting charging package', err);
+
+        return resp.json({
+            status: 0,
+            message: 'Error deleting charging package'
         });
     }
 };

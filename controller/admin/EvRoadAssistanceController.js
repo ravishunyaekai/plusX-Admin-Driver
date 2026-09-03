@@ -38,6 +38,42 @@ const toYesNo = (value) => ([true, 1, '1', 'true', 'yes', 'Yes', 'YES'].includes
 const buildVehicleData = (vehicle_make, vehicle_model) =>
     [vehicle_make, vehicle_model].filter(Boolean).join(', ') || null;
 
+const isMissingDate = (value) =>
+    value === undefined || value === null || String(value).trim() === '' || String(value).includes('_');
+
+const parseOfflineDate = (value) => {
+    if (isMissingDate(value)) return null;
+    const trimmed = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+    const parsed = moment(trimmed, [
+        'YYYY-MM-DD HH:mm:ss',
+        'YYYY-MM-DDTHH:mm:ss',
+        'YYYY-MM-DDTHH:mm:ssZ',
+        'DD-MM-YYYY',
+        'DD/MM/YYYY',
+        'DD-MM-YYYY HH:mm:ss',
+    ], true);
+    if (parsed.isValid()) return parsed.format('YYYY-MM-DD');
+
+    const loose = moment(trimmed);
+    return loose.isValid() ? loose.format('YYYY-MM-DD') : null;
+};
+
+const resolveOfflineDates = (booking_date, booking_completed_date, isCompleted) => {
+    const bookingDate = parseOfflineDate(booking_date);
+    const completedDate = isCompleted ? parseOfflineDate(booking_completed_date) : null;
+
+    if (!isMissingDate(booking_date) && !bookingDate) {
+        return { error: 'Invalid booking_date.' };
+    }
+    if (isCompleted && !isMissingDate(booking_completed_date) && !completedDate) {
+        return { error: 'Invalid booking_completed_date.' };
+    }
+
+    return { bookingDate, completedDate };
+};
+
 const resolveOfflineRsaDriver = async (rsa_id, driver_name, booking_completed_by, connection = null) => {
     const completedByDriver = (driver_name || booking_completed_by || '').toString().trim() || null;
 
@@ -229,6 +265,8 @@ export const offlineRSABookingData = asyncHandler(async (req, resp) => {
         const booking = await queryDB(`
             SELECT
                 b.request_id, b.rider_id, ${formatDateTimeInQuery(['b.created_at'])},
+                DATE_FORMAT(b.booking_date, '%Y-%m-%d') AS booking_date,
+                DATE_FORMAT(b.booking_completed_date, '%Y-%m-%d') AS booking_completed_date,
                 b.customer_name AS name, b.mobile_no AS contact_no, b.email_id AS email, b.country_code,
                 b.order_status, b.address AS pickup_address, b.location_link,
                 b.vehicle_data, b.battery_level, b.jump_start_required,
@@ -329,7 +367,10 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
             (SELECT h.driver_name FROM ${RSA_OFFLINE_HISTORY_TABLE} AS h
                 WHERE h.order_id = ${RSA_OFFLINE_BOOKING_TABLE}.request_id ORDER BY h.id DESC LIMIT 1) AS driver_name,
             (SELECT r.rsa_name FROM rsa AS r WHERE r.rsa_id = ${RSA_OFFLINE_BOOKING_TABLE}.rsa_id LIMIT 1) AS rsa_name,
-            price, order_status, payment_status, mode_of_payment, transaction_id, proof_of_transaction, ${formatDateTimeInQuery(['created_at'])},
+            price, order_status, payment_status, mode_of_payment, transaction_id, proof_of_transaction,
+            DATE_FORMAT(booking_date, '%Y-%m-%d') AS booking_date,
+            DATE_FORMAT(booking_completed_date, '%Y-%m-%d') AS booking_completed_date,
+            ${formatDateTimeInQuery(['created_at'])},
             (SELECT invoice_id FROM ${RSA_OFFLINE_INVOICE_TABLE} AS inv WHERE inv.request_id = ${RSA_OFFLINE_BOOKING_TABLE}.request_id LIMIT 1) AS invoice_id`,
         liveSearchFields : ['request_id', 'customer_name', 'mobile_no'],
         liveSearchTexts  : [search_text, search_text, search_text],
@@ -393,6 +434,7 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         customer_name, mobile_no, email_id, emailId, country_code = '+971', location_link, address, price,
         vehicle_make, vehicle_model, battery_level, jump_start_required, payment_status, mode_of_payment,
         transaction_id, booking_status, driver_name = null, booking_completed_by = null, rsa_id = null,
+        booking_date = null, booking_completed_date = null,
     } = mergeParam(req);
 
     const proofOfTransaction = req.files?.['proof_of_transaction']?.[0]?.filename || null;
@@ -419,6 +461,12 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         return resp.json({ status: 0, code: 422, message: ['Invalid booking status. Allowed values are Confirmed (CNF) or Completed (PU).'] });
     }
     const isCompleted = orderStatus === 'PU';
+    const { error: dateError, bookingDate, completedDate } = resolveOfflineDates(
+        booking_date, booking_completed_date, isCompleted
+    );
+    if (dateError) {
+        return resp.json({ status: 0, code: 422, message: [dateError] });
+    }
 
     const bookingPrice = Number(price);
     const jumpStart    = toYesNo(jump_start_required);
@@ -442,10 +490,12 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             'request_id', 'rider_id', 'customer_name', 'mobile_no', 'email_id', 'country_code', 'location_link', 'address',
             'price', 'jump_start_required', 'battery_level', 'vehicle_data', 'booking_price',
             'order_status', 'payment_status', 'mode_of_payment', 'rsa_id', 'transaction_id', 'proof_of_transaction',
+            'booking_date', 'booking_completed_date',
         ], [
             temporaryRequestId, rider_id, customer_name, mobile_no, email, country_code || '+971', location_link || null, address,
             bookingPrice, jumpStart, battery_level ?? 0, vehicleData, bookingPrice,
             orderStatus, payment_status || 'Pending', mode_of_payment || null, driverInfo.rsa_id, transaction_id || null, proofOfTransaction,
+            bookingDate, completedDate,
         ], connection);
 
         if (insert.affectedRows === 0) {
@@ -493,8 +543,10 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             invoice_id,
             order_status         : orderStatus,
             rsa_id               : driverInfo.rsa_id,
-            driver_name          : driverInfo.driver_name,
-            proof_of_transaction : proofOfTransaction,
+            driver_name            : driverInfo.driver_name,
+            proof_of_transaction   : proofOfTransaction,
+            booking_date           : bookingDate,
+            booking_completed_date : completedDate,
         });
     } catch (error) {
         if (connection) {
@@ -510,6 +562,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         request_id, customer_name, mobile_no, email_id, emailId, country_code = '+971', location_link, address, price,
         vehicle_make, vehicle_model, battery_level, jump_start_required, payment_status, mode_of_payment,
         transaction_id, booking_status, driver_name = null, booking_completed_by = null, rsa_id = null,
+        booking_date = null, booking_completed_date = null,
     } = mergeParam(req);
 
     const proofOfTransaction = req.files?.['proof_of_transaction']?.[0]?.filename || null;
@@ -554,6 +607,13 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
 
     const wasCompleted = existing.order_status === 'PU';
     const isCompleted  = orderStatus === 'PU';
+    const { error: dateError, bookingDate, completedDate } = resolveOfflineDates(
+        booking_date, booking_completed_date, isCompleted
+    );
+    if (dateError) {
+        return resp.json({ status: 0, code: 422, message: [dateError] });
+    }
+
     const bookingPrice = Number(price);
     const jumpStart    = toYesNo(jump_start_required);
     const vehicleData  = buildVehicleData(vehicle_make, vehicle_model);
@@ -588,9 +648,11 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             order_status          : orderStatus,
             payment_status        : payment_status || 'Pending',
             mode_of_payment       : mode_of_payment || null,
-            rsa_id                : driverInfo.rsa_id,
-            transaction_id        : transaction_id || null,
-            proof_of_transaction  : savedProof,
+            rsa_id                 : driverInfo.rsa_id,
+            transaction_id         : transaction_id || null,
+            proof_of_transaction   : savedProof,
+            booking_date           : bookingDate,
+            booking_completed_date : completedDate,
         }, ['request_id'], [request_id], connection);
 
         if (update.affectedRows === 0) {
@@ -685,9 +747,11 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             order_status         : orderStatus,
             previous_status      : existing.order_status,
             rsa_id               : driverInfo.rsa_id,
-            driver_name          : driverInfo.driver_name,
-            proof_of_transaction : savedProof,
-            invoice_created      : isCompleted && !wasCompleted && !!invoice_id && !existingInvoice,
+            driver_name            : driverInfo.driver_name,
+            proof_of_transaction   : savedProof,
+            booking_date           : bookingDate,
+            booking_completed_date : completedDate,
+            invoice_created        : isCompleted && !wasCompleted && !!invoice_id && !existingInvoice,
         });
     } catch (error) {
         if (connection) {

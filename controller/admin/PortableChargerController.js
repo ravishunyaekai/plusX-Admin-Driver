@@ -33,19 +33,6 @@ export const chargerBookingList = async (req, resp) => {
         };
 
         if (start_date && end_date) {
-            
-            // const startToday = new Date(start_date);
-            // const startFormattedDate = `${startToday.getFullYear()}-${(startToday.getMonth() + 1).toString()
-            //     .padStart(2, '0')}-${startToday.getDate().toString().padStart(2, '0')}`;
-                        
-            // const givenStartDateTime    = startFormattedDate+' 00:00:01'; 
-            // const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours'); 
-            // const start        = modifiedStartDateTime.format('YYYY-MM-DD HH:mm:ss')
-            
-            // const endToday = new Date(end_date);
-            // const formattedEndDate = `${endToday.getFullYear()}-${(endToday.getMonth() + 1).toString()
-            //     .padStart(2, '0')}-${endToday.getDate().toString().padStart(2, '0')}`;
-            // const end = formattedEndDate+' 19:59:59';
 
              //optimized code
              const start = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
@@ -208,19 +195,6 @@ export const invoiceList = async (req, resp) => {
         const whereOperators = []
 
         if (start_date && end_date) {
-            
-            // const startToday         = new Date(start_date);
-            // const startFormattedDate = `${startToday.getFullYear()}-${(startToday.getMonth() + 1).toString()
-            //     .padStart(2, '0')}-${startToday.getDate().toString().padStart(2, '0')}`;
-                       
-            // const givenStartDateTime    = startFormattedDate+' 00:00:01';
-            // const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours');
-            // const start                 = modifiedStartDateTime.format('YYYY-MM-DD HH:mm:ss')
-            
-            // const endToday         = new Date(end_date);
-            // const formattedEndDate = `${endToday.getFullYear()}-${(endToday.getMonth() + 1).toString()
-            //     .padStart(2, '0')}-${endToday.getDate().toString().padStart(2, '0')}`;
-            // const end = formattedEndDate+' 19:59:59';
 
             //optimized code
             const start = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
@@ -291,7 +265,9 @@ export const invoiceDetails = async (req, resp) => {
      
     data.dis_price  = data.price_details.discount_amt;
     data.t_vat_amt  = data.price_details.vat_amount; 
-    data.price      = Math.round(data.price_details.total_price) ; 
+    // data.price      = Math.round(data.price_details.total_price) ; 
+    data.price     = data.price_details.total_price ; 
+    
     data.price_details = {};
          
     return resp.json({
@@ -571,22 +547,23 @@ export const assignBooking = async (req, resp) => {
         // createNotification(heading, desc, 'Portable Charging Booking', 'Rider', 'Admin', '', booking_data.rider_id, href);
         // /pushNotification(booking_data.fcm_token, heading, desc, 'RDRFCM', href);
 
-        const heading1 = 'Portable Charging Booking!';
+        // const heading1 = 'Portable Charging Booking!';
+        const heading1 = 'Mobile & Portable EV Charging Service Booking!'
         const desc1    = `Booking Assigned : ${booking_id}`;
-        createNotification(heading, desc1, 'Portable Charger', 'RSA', 'Rider', booking_data.rider_id, rsa_id, href);
+        createNotification(heading, desc1, 'Portable Charging Booking', 'RSA', 'Rider', booking_data.rider_id, rsa_id, href);
         pushNotification(rsa.fcm_token, heading1, desc1, 'RSAFCM', href);
 
         const htmlDriver = `<html>
             <body>
                 <h4>Dear ${rsa.rsa_name},</h4>
-                <p>A Booking of the portable charging booking has been assigned to you.</p> 
+                <p>A Booking of the mobile & portable EV charging service booking has been assigned to you.</p> 
                 <p>Booking Details:</p>
                 <p>Booking ID: ${booking_id}</p>
                 <p>Date and Time of Service: ${moment(slotDateTime, 'YYYY-MM-DD HH:mm:ss').format('D MMM, YYYY, h:mm A')}</p>
                 <p> Best regards,<br/>PlusX Electric Team </p>
             </body>
         </html>`;
-        emailQueue.addEmail(rsa.email, 'PlusX Electric App: Booking Confirmation for Your Portable EV Charger', htmlDriver);
+        emailQueue.addEmail(rsa.email, 'PlusX Electric App: Booking Confirmation for Your Mobile & Portable EV Charging Service', htmlDriver);
         
         return resp.json({
             status  : 1, 
@@ -634,24 +611,25 @@ export const adminCancelPCBooking = asyncHandler(async (req, resp) => {
 
     await updateRecord('portable_charger_booking', {status : 'C'}, ['booking_id'], [booking_id]);
     const href    = `portable_charger_booking/${booking_id}`;
-    const title   = 'Portable Charger Cancel!';
-    const message = `We regret to inform you that your portable charging booking (ID: ${booking_id}) has been cancelled by the admin.`;
-    await createNotification(title, message, 'Portable Charging', 'Rider', 'Rider',  rider_id, rider_id, href);
+    const title   = 'Mobile & Portable EV Charging Service Booking Cancel!';
+    const message = `We regret to inform you that your mobile & portable EV charging service booking (ID: ${booking_id}) has been cancelled by the admin.`;
+    // await createNotification(title, message, 'Portable Charging', 'Rider', 'Rider',  rider_id, rider_id, href);
+    await createNotification(title, message, 'Portable Charging Booking', 'Rider', 'Rider',  rider_id, rider_id, href);
     await pushNotification(checkOrder.fcm_token, title, message, 'RDRFCM', href);
 
     if(checkOrder.rsa_id) {
         await db.execute(`DELETE FROM portable_charger_booking_assign WHERE order_id=? AND rider_id=?`, [booking_id, rider_id]);
         await db.execute('UPDATE rsa SET running_order = running_order - 1 WHERE rsa_id = ?', [checkOrder.rsa_id]);
 
-        const message1 = `A Booking of the portable charging booking has been cancelled by admin with booking id : ${booking_id}`;
-        await createNotification(title, message1, 'Portable Charging', 'RSA', 'Rider', rider_id, checkOrder.rsa_id,  href);
+        const message1 = `A Booking of the mobile & portable EV charging service booking has been cancelled by admin with booking id : ${booking_id}`;
+        await createNotification(title, message1, 'Portable Charging Booking', 'RSA', 'Rider', rider_id, checkOrder.rsa_id,  href);
         await pushNotification(checkOrder.rsa_fcm_token, title, message1, 'RSAFCM', href);
     } 
 
     const html = `<html>
         <body>
             <h4>Dear ${checkOrder.user_name},</h4>
-            <p>We would like to inform you that your recent booking for the Portable EV Charger Service with PlusX Electric has been cancelled.</p><br />
+            <p>We would like to inform you that your recent booking for the mobile & portable EV charging service with PlusX Electric has been cancelled.</p><br />
             <p>Booking Details:</p><br />
             <p>Booking ID    : ${booking_id}</p>
             <p>Date and Time : ${moment(`${checkOrder.slot_date} ${checkOrder.slot_time}`, 'YYYY-MM-DD HH:mm:ss').format('D MMM, YYYY, h:mm A')} </p>
@@ -661,12 +639,12 @@ export const adminCancelPCBooking = asyncHandler(async (req, resp) => {
             <p>Best regards,<br/> The PlusX Electric Team </p>
         </body>
     </html>`;
-    emailQueue.addEmail(checkOrder.rider_email, `Booking Cancellation Confirmation - PlusX Electric Portable Charger Service (Booking ID : ${booking_id} )`, html);
+    emailQueue.addEmail(checkOrder.rider_email, `Booking Cancellation Confirmation - PlusX Electric Mobile & Portable EV Charging Service (Booking ID : ${booking_id} )`, html);
 
     const adminHtml = `<html>
         <body>
             <h4>Dear Admin,</h4>
-            <p>This is to inform you that admin has cancelled a booking for the Portable EV Charging Service. Please see the details below for record-keeping and any necessary follow-up.</p> <br />
+            <p>This is to inform you that admin has cancelled a booking for the mobile & portable EV charging service. Please see the details below for record-keeping and any necessary follow-up.</p> <br />
             <p>Booking Details:</p><br />
             <p>User Name    : ${checkOrder.user_name}</p>
             <p>User Contact    : ${checkOrder.contact_no}</p>
@@ -677,7 +655,7 @@ export const adminCancelPCBooking = asyncHandler(async (req, resp) => {
             <p>Best regards,<br/> The PlusX Electric Team </p>
         </body>
     </html>`;
-    emailQueue.addEmail(process.env.MAIL_POD_ADMIN, `Portable Charger Service Booking Cancellation ( :Booking ID : ${booking_id} )`, adminHtml);
+    emailQueue.addEmail(process.env.MAIL_POD_ADMIN, `Mobile & Portable EV Charging Service Booking Cancellation ( :Booking ID : ${booking_id} )`, adminHtml);
 
     return resp.json({ message: ['Booking has been cancelled successfully!'], status: 1, code: 200 });
 });
@@ -784,19 +762,6 @@ export const failedChargerBookingList = async (req, resp) => {
         };
         if (start_date && end_date) {
             
-            // const startToday = new Date(start_date);
-            // const startFormattedDate = `${startToday.getFullYear()}-${(startToday.getMonth() + 1).toString()
-            //     .padStart(2, '0')}-${startToday.getDate().toString().padStart(2, '0')}`;
-                       
-            // const givenStartDateTime    = startFormattedDate+' 00:00:01';
-            // const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours');
-            // const start        = modifiedStartDateTime.format('YYYY-MM-DD HH:mm:ss')
-            
-            // const endToday = new Date(end_date);
-            // const formattedEndDate = `${endToday.getFullYear()}-${(endToday.getMonth() + 1).toString()
-            //     .padStart(2, '0')}-${endToday.getDate().toString().padStart(2, '0')}`;
-            // const end = formattedEndDate+' 19:59:59';
-
             //optimized code
             const start = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
             const end = moment(end_date, "YYYY-MM-DD").format("YYYY-MM-DD") + " 19:59:59";

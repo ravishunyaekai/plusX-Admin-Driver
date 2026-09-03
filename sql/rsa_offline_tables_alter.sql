@@ -10,3 +10,8 @@ ALTER TABLE rsa_offline_booking
 ALTER TABLE rsa_offline_order_history
     ADD COLUMN rsa_id VARCHAR(50) NULL AFTER driver_name,
     ADD KEY idx_rsa_offline_history_rsa_id (rsa_id);
+
+-- Booking date fields sent from the admin form
+ALTER TABLE rsa_offline_booking
+    ADD COLUMN booking_date DATE NULL AFTER proof_of_transaction,
+    ADD COLUMN booking_completed_date DATE NULL AFTER booking_date;

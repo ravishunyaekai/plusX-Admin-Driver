@@ -136,13 +136,13 @@ export const rejectBooking = asyncHandler(async (req, resp) => {
 
     const href    = `portable_charger_booking/${booking_id}`;
     const title   = 'Booking Rejected';
-    const message = `Driver has rejected the portable charger booking with booking id: ${booking_id}`;
+    const message = `Driver has rejected the mobile & portable EV charging service booking with booking id: ${booking_id}`;
     await createNotification(title, message, 'Portable Charging Booking', 'Admin', 'RSA', rsa_id, '', href);
 
     const html = `<html>
         <body>
             <h4>Dear Admin,</h4>
-            <p>Driver has rejected the portable charger booking. please assign one Driver on this booking</p> <br />
+            <p>Driver has rejected the mobile & portable EV charging service booking. please assign one Driver on this booking</p> <br />
             <p>Booking ID: ${booking_id}</p>
             <p>Best Regards,<br/> The PlusX Electric Team </p>
         </body>
@@ -175,7 +175,7 @@ const acceptBooking = async (req, resp) => {
         await updateRecord('portable_charger_booking', {status: 'A', rsa_id}, ['booking_id'], [booking_id]);
 
         const href    = `portable_charger_booking/${booking_id}`;
-        const title   = 'Portable Charging Booking!';
+        const title   = 'Mobile & Portable EV Charging Service Booking!';
         const message = `Booking Accepted! ${booking_id}`;
         await createNotification(title, message, 'Portable Charging Booking', 'Rider', 'RSA', rsa_id, checkOrder.rider_id, href);
         
@@ -232,7 +232,7 @@ const driverEnroute = async (req, resp) => {
         await updateRecord('portable_charger_booking', {status: 'ER'}, ['booking_id' ], [booking_id ]);
 
         const href    = `portable_charger_booking/${booking_id}`;
-        const title   = 'Portable Charging Booking!';
+        const title   = 'Mobile & Portable EV Charging Service Booking!';
         const message = `PlusX Electric team is on the way!`;
         await createNotification(title, message, 'Portable Charging Booking', 'Rider', 'RSA', rsa_id, checkOrder.rider_id, href);
         //await createNotification(title, message, 'Portable Charging Booking', 'Admin', 'RSA', rsa_id, '', href);
@@ -280,7 +280,7 @@ const reachedLocation = async (req, resp) => {
         await updateRecord('portable_charger_booking', {status: 'RL', rsa_id}, ['booking_id'], [booking_id] );
 
         const href    = `portable_charger_booking/${booking_id}`;
-        const title   = 'Portable Charging Booking!';
+        const title   = 'Mobile & Portable EV Charging Service Booking!';
         const message = `The POD has arrived. Please unlock your EV.`;
          await createNotification(title, message, 'Portable Charging Booking', 'Rider', 'RSA', rsa_id, checkOrder.rider_id, href);
         // await createNotification(title, message, 'Portable Charging Booking', 'Admin', 'RSA', rsa_id, '', href);
@@ -338,7 +338,7 @@ const chargingStart = async (req, resp) => {
         await updateRecord('pod_devices', { charging_status : 1, latitude, longitude}, ['pod_id'], [pod_id] );
 
         const href    = `portable_charger_booking/${booking_id}`;
-        const title   = 'Portable Charging Booking!';
+        const title   = 'Mobile & Portable EV Charging Service Booking!';
         const message = `The POD has started charging your EV!`;
         await createNotification(title, message, 'Portable Charging Booking', 'Rider', 'RSA', rsa_id, checkOrder.rider_id, href);
         // await createNotification(title, message, 'Portable Charging Booking', 'Admin', 'RSA', rsa_id, '', href);
@@ -396,7 +396,7 @@ const chargingComplete = async (req, resp) => {
         await db.execute( `UPDATE pod_devices SET charging_status = 0, temp1 = temp1 + 30, temp2 = temp2 + 25 WHERE pod_id = ?`, [checkOrder.pod_id] );
 
         const href    = `portable_charger_booking/${booking_id}`;
-        const title   = 'Portable Charging Booking!';
+        const title   = 'Mobile & Portable EV Charging Service Booking!';
         const message = `Charging complete. Please lock your EV.`;
 
         await createNotification(title, message, 'Portable Charging Booking', 'Rider', 'RSA', rsa_id, checkOrder.rider_id, href);
@@ -406,12 +406,12 @@ const chargingComplete = async (req, resp) => {
         const html = `<html>
             <body>
                 <h4>Dear ${checkOrder.rider_name}</h4>
-                <p>Thank you for choosing PlusX Electric for your Portable EV Charger service. We're pleased to inform you that the service has been successfully completed.</p>
+                <p>Thank you for choosing PlusX Electric for your Mobile & Portable EV Charging Service. We're pleased to inform you that the service has been successfully completed.</p>
                 <p>We truly appreciate your trust in us and look forward to serving you again in the future.</p>
                 <p>Best Regards,<br/>PlusX Electric Team </p>
             </body>
         </html>`;
-        emailQueue.addEmail(checkOrder.rider_email, 'PlusX Electric: Your Portable EV Charger Service is Now Complete', html); 
+        emailQueue.addEmail(checkOrder.rider_email, 'PlusX Electric: Your Mobile & Portable EV Charging Service Booking is Now Complete', html); 
         await portableChargerInvoice(checkOrder.rider_id, booking_id); 
         return resp.json({ message: [`Charging complete. Don't forget to lock your EV.`], status: 1, code: 200 });
     } else {
@@ -577,7 +577,7 @@ export const portableChargerInvoice = async (rider_id, request_id ) => {
     try {
         const checkOrder = await queryDB(` 
             SELECT 
-                payment_intent_id, booking_price, 
+                payment_intent_id, booking_price, package_data,
                 (SELECT coupan_percentage FROM coupon_usage as cu WHERE cu.booking_id = pod.booking_id LIMIT 1) AS discount
             FROM 
                 portable_charger_booking as pod
@@ -622,7 +622,7 @@ export const portableChargerInvoice = async (rider_id, request_id ) => {
             createObj.receipt_url       = charge.receipt_url;
             createObj.card_data         = cardData;
         }
-        createObj.price_details = await makeInvoicePriceDetails(checkOrder.booking_price, checkOrder.discount) ;
+        createObj.price_details = await makeInvoicePriceDetails(checkOrder.booking_price, checkOrder.discount, checkOrder.package_data);
         const columns = Object.keys(createObj);
         const values  = Object.values(createObj);
         const insert  = await insertRecord('portable_charger_invoice', columns, values);
@@ -636,14 +636,28 @@ export const portableChargerInvoice = async (rider_id, request_id ) => {
     }
 };
 
-const makeInvoicePriceDetails = async (amount, discount) => {
+const parseBookingPackageData = (packageData) => {
+    if (!packageData) return null;
+    if (typeof packageData === 'object') return packageData;
+    if (typeof packageData === 'string' && packageData !== '') {
+        try {
+            return JSON.parse(packageData);
+        } catch {
+            return null;
+        }
+    }
+    return null;
+};
 
-    let baseAmount      = Number(amount) || 0;
+const makeInvoicePriceDetails = async (amount, discount, packageData = null) => {
+    const selectedPackage = parseBookingPackageData(packageData);
+
+    let baseAmount      = Number(selectedPackage?.price ?? amount) || 0;
     let discountPercent = Number(discount) || 0;
 
-    const kwConsume = 25;
+    const kwConsume = Number(selectedPackage?.charging_capacity) || 25;
     const dewaUnit  = 0.44;
-    const cpoUnit   = 0.26;
+    const cpoUnit   = 0.76;
 
     const kwDewaAmt      = kwConsume * dewaUnit;
     const kwCpoAmt       = kwConsume * cpoUnit;

@@ -40,7 +40,7 @@ import { chargeShareList, chargeShareDetail, outputAndConnector, editAcceptCharg
 
 import { communityList, communityDetail, addCommunity, editCommunity, allCommunityList, addResident, editResident, residentList, residentListOld, residentDetail, communityAreaList, residentSearch, getInvoiceData, createScanChargeInvoice, scanChargeInvoiceList, scanChargeInvoiceDetail, sessionList, sessionDetail } from "../controller/admin/CommunityController.js";
 import { addResidentMulti, editResidentMulti, residentListMulti, residentListMultiOld, residentDetailMulti, residentSearchMulti } from "../controller/admin/CommunityControllerNew.js";
-import { uploadFile, uploadFileMiddleware } from "../controller/admin/UploadController.js";
+// import { uploadFile, uploadFileMiddleware } from "../controller/admin/UploadController.js";
 
 const router = Router();
 
@@ -55,7 +55,7 @@ adminAuthRoutes.forEach(({ method, path, handler }) => {
 
 // Upload file to S3 and return URL (for manual insert into response_module via Postman)
 // Auth: Authorization header only (API_AUTH_KEY) — no admin session required
-router.post('/upload-file', adminAuthorization, uploadFileMiddleware, uploadFile);
+// router.post('/upload-file', adminAuthorization, uploadFileMiddleware, uploadFile);
 const adminRoutes = [
     { method: 'post',  path: '/logout',             handler: logout },
     { method: 'post', path: '/forgot-password',     handler: forgotPassword },

@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS rsa_offline_booking (
     rsa_id               VARCHAR(50)  NULL,
     transaction_id       VARCHAR(100) NULL,
     proof_of_transaction VARCHAR(255) NULL,
+    booking_date         DATE         NULL,
+    booking_completed_date DATE       NULL,
     created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
@@ -68,6 +70,11 @@ CREATE TABLE IF NOT EXISTS rsa_offline_invoice (
     KEY idx_rsa_offline_invoice_rider_id (rider_id),
     KEY idx_rsa_offline_invoice_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Existing rsa_offline_booking tables: add booking date columns
+ALTER TABLE rsa_offline_booking
+    ADD COLUMN booking_date DATE NULL AFTER proof_of_transaction,
+    ADD COLUMN booking_completed_date DATE NULL AFTER booking_date;
 
 ----------------------------------------------------------  ----------------------------------------------------------
 

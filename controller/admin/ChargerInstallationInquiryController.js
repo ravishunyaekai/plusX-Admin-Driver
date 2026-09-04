@@ -71,7 +71,7 @@ const parseDecimal = (value) => {
 
 const isAllowed = (value, allowed) => !value || allowed.includes(String(value).trim());
 
-const buildInquiryId = (insertId) => `CII-${String(insertId).padStart(4, '0')}`;
+const buildInquiryId = (insertId) => `CI-${String(insertId).padStart(3, '0')}`;
 
 const attachFileUrls = (inquiry) => {
     if (!inquiry) return inquiry;
@@ -400,7 +400,7 @@ export const chargerInstallationInquiryAdd = asyncHandler(async (req, resp) => {
 
         const record = buildInquiryRecord(body, files);
         const columns = ['inquiry_id', ...Object.keys(record)];
-        const values = ['CII', ...Object.values(record)];
+        const values = ['CI', ...Object.values(record)];
 
         const insert = await insertRecord(INQUIRY_TABLE, columns, values);
         if (insert.affectedRows === 0) {

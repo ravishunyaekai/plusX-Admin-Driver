@@ -24,10 +24,12 @@ export const login = async (req, resp) => {
 
         const [managers] = await db.execute(`
             SELECT
-                id, manager_id, community_id, manager_name, manager_email, manager_contact,
-                password, status, ${formatDateTimeInQuery(['created_at', 'updated_at'])}
-            FROM community_managers
-            WHERE manager_email = ?
+                cm.id, cm.manager_id, cm.community_id, cm.manager_name, cm.manager_email, cm.manager_contact,
+                cm.password, cm.status, cl.community_name,
+                ${formatDateTimeInQuery(['cm.created_at', 'cm.updated_at'])}
+            FROM community_managers AS cm
+            LEFT JOIN community_list AS cl ON cl.community_id = cm.community_id COLLATE utf8mb4_0900_ai_ci
+            WHERE cm.manager_email = ?
         `, [email]);
 
         if (managers.length === 0) {

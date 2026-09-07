@@ -4,8 +4,7 @@ import validateFields from "../../validation.js";
 import { queryDB, getPaginatedData, updateRecord, insertRecord } from '../../dbUtils.js';
 import db from "../../config/db.js";
 import moment from "moment";
-// Temporarily disabled for live — community manager details
-// import bcrypt from "bcryptjs";
+import bcrypt from "bcryptjs";
 
 import { tryCatchErrorHandler } from "../../middleware/errorHandler.js";
 
@@ -62,13 +61,12 @@ export const communityDetail = asyncHandler(async (req, resp) => {
         WHERE community_id = ?`, [ community_id ]
     );
 
-    // Temporarily disabled for live — community manager details
-    // const manager = await queryDB(`
-    //     SELECT 
-    //         manager_id, manager_name, manager_email, manager_contact, status, ${formatDateTimeInQuery(['created_at'])}
-    //     FROM community_managers 
-    //     WHERE community_id = ?`, [ community_id ]
-    // );
+    const manager = await queryDB(`
+        SELECT 
+            manager_id, manager_name, manager_email, manager_contact, status, ${formatDateTimeInQuery(['created_at'])}
+        FROM community_managers 
+        WHERE community_id = ?`, [ community_id ]
+    );
 
     return resp.json({
         status  : 1,
@@ -76,7 +74,7 @@ export const communityDetail = asyncHandler(async (req, resp) => {
         message : ["Community Details fetched successfully!"],
         data    : communities,
         chargers,
-        // manager,
+        manager,
     });
 });
 
@@ -84,8 +82,7 @@ export const addCommunity = asyncHandler(async (req, resp) => {
     try {
         const {
             community_name, area_name, total_residence, chargers, kwValues,
-            // Temporarily disabled for live — community manager details
-            // manager_name, manager_email, manager_contact, password
+            manager_name, manager_email, manager_contact, password
         } = req.body;
         
         // return resp.json({ status : 0, message : "Community added successfully.", body : req.body });
@@ -96,30 +93,28 @@ export const addCommunity = asyncHandler(async (req, resp) => {
             total_residence  : ["required"], 
             chargers         : ["required"],
             kwValues         : ["required"],
-            // Temporarily disabled for live — community manager details
-            // manager_name     : ["required"],
-            // manager_email    : ["required"],
-            // // manager_contact  : ["required"],
-            // password         : ["required"],
+            manager_name     : ["required"],
+            manager_email    : ["required"],
+            // manager_contact  : ["required"],
+            password         : ["required"],
         });
         if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
-        // Temporarily disabled for live — community manager details
-        // if (password.length < 6) return resp.json({ status: 0, code: 422, message: ["Password must be at least 6 characters"] });
+        if (password.length < 6) return resp.json({ status: 0, code: 422, message: ["Password must be at least 6 characters"] });
 
-        // const [duplicateCheck] = await db.query(`
-        //     SELECT 'contact' AS type FROM community_managers WHERE manager_contact = ?
-        //     UNION
-        //         SELECT 'email' AS type FROM community_managers WHERE manager_email = ? `,
-        //     [ manager_contact, manager_email ]
-        // );
-        // const types = duplicateCheck.map(row => row.type);
-        // if (types.includes('contact') && types.includes('email')) {
-        //     return resp.json({ status: 0, code: 422, message: ["Manager contact number and Email already exist"] });
-        // } else if (types.includes('contact')) {
-        //     return resp.json({ status: 0, code: 422, message: ["Manager contact number already exists"] });
-        // } else if (types.includes('email')) {
-        //     return resp.json({ status: 0, code: 422, message: ["Manager email already exists"] });
-        // }
+        const [duplicateCheck] = await db.query(`
+            SELECT 'contact' AS type FROM community_managers WHERE manager_contact = ?
+            UNION
+                SELECT 'email' AS type FROM community_managers WHERE manager_email = ? `,
+            [ manager_contact, manager_email ]
+        );
+        const types = duplicateCheck.map(row => row.type);
+        if (types.includes('contact') && types.includes('email')) {
+            return resp.json({ status: 0, code: 422, message: ["Manager contact number and Email already exist"] });
+        } else if (types.includes('contact')) {
+            return resp.json({ status: 0, code: 422, message: ["Manager contact number already exists"] });
+        } else if (types.includes('email')) {
+            return resp.json({ status: 0, code: 422, message: ["Manager email already exists"] });
+        }
 
         const insert = await insertRecord('community_list',
             [ 'community_id', 'community_name', 'area_name', 'total_residence', 'status' ], 
@@ -143,17 +138,16 @@ export const addCommunity = asyncHandler(async (req, resp) => {
             );
         }
 
-        // Temporarily disabled for live — community manager details
-        // const hashedPswd = await bcrypt.hash(password, 10);
-        // const managerInsert = await insertRecord('community_managers',
-        //     [ 'manager_id', 'community_id', 'manager_name', 'manager_email', 'manager_contact', 'password', 'status' ],
-        //     [ 'manager_id', community_id, manager_name, manager_email, manager_contact, hashedPswd, 1 ]
-        // );
-        // if (managerInsert.affectedRows == 0) {
-        //     return resp.json({ status: 0, message: "Community added but failed to add community manager. Please try again." });
-        // }
-        // const manager_id = 'CM-' + String(managerInsert.insertId).padStart(3, '0');
-        // await updateRecord('community_managers', { manager_id }, ['id'], [managerInsert.insertId]);
+        const hashedPswd = await bcrypt.hash(password, 10);
+        const managerInsert = await insertRecord('community_managers',
+            [ 'manager_id', 'community_id', 'manager_name', 'manager_email', 'manager_contact', 'password', 'status' ],
+            [ 'manager_id', community_id, manager_name, manager_email, manager_contact, hashedPswd, 1 ]
+        );
+        if (managerInsert.affectedRows == 0) {
+            return resp.json({ status: 0, message: "Community added but failed to add community manager. Please try again." });
+        }
+        const manager_id = 'CM-' + String(managerInsert.insertId).padStart(3, '0');
+        await updateRecord('community_managers', { manager_id }, ['id'], [managerInsert.insertId]);
 
         return resp.json({ status  : 1, message : "Community added successfully." });
 
@@ -167,8 +161,7 @@ export const editCommunity = asyncHandler(async (req, resp) => {
     try {
         const {
             community_id, community_name, area_name, total_residence, chargers, kwValues,
-            // Temporarily disabled for live — community manager details
-            // manager_name, manager_email, manager_contact, password
+            manager_name, manager_email, manager_contact, password
         } = req.body;
         
         // return resp.json({ status : 0, message : "Community added successfully.", body : req.body });
@@ -180,31 +173,29 @@ export const editCommunity = asyncHandler(async (req, resp) => {
             total_residence  : ["required"], 
             chargers         : ["required"],
             kwValues         : ["required"],
-            // Temporarily disabled for live — community manager details
-            // manager_name     : ["required"],
-            // manager_email    : ["required"],
-            // // manager_contact  : ["required"],
+            manager_name     : ["required"],
+            manager_email    : ["required"],
+            // manager_contact  : ["required"],
         });
         if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
-        // Temporarily disabled for live — community manager details
-        // if (password && password.length < 6) {
-        //     return resp.json({ status: 0, code: 422, message: ["Password must be at least 6 characters"] });
-        // }
+        if (password && password.length < 6) {
+            return resp.json({ status: 0, code: 422, message: ["Password must be at least 6 characters"] });
+        }
 
-        // const [duplicateCheck] = await db.query(`
-        //     SELECT 'contact' AS type FROM community_managers WHERE manager_contact = ? AND community_id != ?
-        //     UNION
-        //         SELECT 'email' AS type FROM community_managers WHERE manager_email = ? AND community_id != ? `,
-        //     [ manager_contact, community_id, manager_email, community_id ]
-        // );
-        // const types = duplicateCheck.map(row => row.type);
-        // if (types.includes('contact') && types.includes('email')) {
-        //     return resp.json({ status: 0, code: 422, message: ["Manager contact number and Email already exist"] });
-        // } else if (types.includes('contact')) {
-        //     return resp.json({ status: 0, code: 422, message: ["Manager contact number already exists"] });
-        // } else if (types.includes('email')) {
-        //     return resp.json({ status: 0, code: 422, message: ["Manager email already exists"] });
-        // }
+        const [duplicateCheck] = await db.query(`
+            SELECT 'contact' AS type FROM community_managers WHERE manager_contact = ? AND community_id != ?
+            UNION
+                SELECT 'email' AS type FROM community_managers WHERE manager_email = ? AND community_id != ? `,
+            [ manager_contact, community_id, manager_email, community_id ]
+        );
+        const types = duplicateCheck.map(row => row.type);
+        if (types.includes('contact') && types.includes('email')) {
+            return resp.json({ status: 0, code: 422, message: ["Manager contact number and Email already exist"] });
+        } else if (types.includes('contact')) {
+            return resp.json({ status: 0, code: 422, message: ["Manager contact number already exists"] });
+        } else if (types.includes('email')) {
+            return resp.json({ status: 0, code: 422, message: ["Manager email already exists"] });
+        }
 
         const updtObj = { community_name, area_name, total_residence }
         const update = await updateRecord('community_list', updtObj, ['community_id'], [ community_id ] );
@@ -221,12 +212,11 @@ export const editCommunity = asyncHandler(async (req, resp) => {
             );
         }
 
-        // Temporarily disabled for live — community manager details
-        // const managerUpdtObj = { manager_name, manager_email, manager_contact };
-        // if (password) {
-        //     managerUpdtObj.password = await bcrypt.hash(password, 10);
-        // }
-        // await updateRecord('community_managers', managerUpdtObj, ['community_id'], [ community_id ]);
+        const managerUpdtObj = { manager_name, manager_email, manager_contact };
+        if (password) {
+            managerUpdtObj.password = await bcrypt.hash(password, 10);
+        }
+        await updateRecord('community_managers', managerUpdtObj, ['community_id'], [ community_id ]);
 
         return resp.json({
             status: update.affectedRows > 0 ? 1 : 0, 

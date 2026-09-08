@@ -38,8 +38,8 @@ import { podDeviceList, podDeviceDetails, addPodDevice, editPodDevice, deletePod
 
 import { chargeShareList, chargeShareDetail, outputAndConnector, editAcceptChargShare, rejectChargShare } from "../controller/admin/ChargeShareController.js";
 
-import { communityList, communityDetail, addCommunity, editCommunity, allCommunityList, addResident, editResident, residentList, residentListOld, residentDetail, communityAreaList, residentSearch, getInvoiceData, createScanChargeInvoice, scanChargeInvoiceList, scanChargeInvoiceDetail, sessionList, sessionDetail } from "../controller/admin/CommunityController.js";
-import { addResidentMulti, editResidentMulti, residentListMulti, residentListMultiOld, residentDetailMulti, residentSearchMulti } from "../controller/admin/CommunityControllerNew.js";
+import { communityList, communityDetail, addCommunity, editCommunity, allCommunityList, addResidentMulti, editResidentMulti, residentListMulti, residentListMultiOld, residentDetailMulti, residentSearchMulti, communityAreaList, getInvoiceData, createScanChargeInvoice, scanChargeInvoiceList, scanChargeInvoiceDetail, sessionList, sessionDetail } from "../controller/admin/CommunityController.js";
+// import { addResidentMulti, editResidentMulti, residentListMulti, residentListMultiOld, residentDetailMulti, residentSearchMulti } from "../controller/admin/CommunityControllerNew.js";
 // import { uploadFile, uploadFileMiddleware } from "../controller/admin/UploadController.js";
 
 const router = Router();
@@ -250,18 +250,18 @@ const adminRoutes = [
     { method: 'post',  path: '/community-area-list', handler: communityAreaList },
 
     // Resident Routes -- existing routes
-    // { method: 'post',  path: '/resident-add',     handler: addResident },
-    // { method: 'post',  path: '/resident-edit',    handler: editResident },
-    // { method: 'post',  path: '/resident-list',    handler: residentList },
-    // { method: 'post',  path: '/resident-details', handler: residentDetail },
-    // { method: 'post',  path: '/resident-search',            handler : residentSearch },
+    // { method: 'post',  path: '/resident-add',     handler: addResidentMulti },
+    // { method: 'post',  path: '/resident-edit',    handler: editResidentMulti },
+    // { method: 'post',  path: '/resident-list',    handler: residentListMulti },
+    // { method: 'post',  path: '/resident-details', handler: residentDetailMulti },
+    // { method: 'post',  path: '/resident-search',            handler : residentSearchMulti },
 
     // Resident Routes (multi-community — CommunityControllerNew)
     { method: 'post',  path: '/resident-add',     handler: addResidentMulti },
     { method: 'post',  path: '/resident-edit',    handler: editResidentMulti },
     { method: 'post',  path: '/resident-list',    handler: residentListMulti },
     { method: 'post',  path: '/resident-list-old', handler: residentListMultiOld },
-    { method: 'post',  path: '/resident-list-single-old', handler: residentListOld },
+    // { method: 'post',  path: '/resident-list-single-old', handler: residentListOld }, // handler commented out in CommunityController
     { method: 'post',  path: '/resident-details', handler: residentDetailMulti },
     { method: 'post',  path: '/resident-search',  handler: residentSearchMulti },
 

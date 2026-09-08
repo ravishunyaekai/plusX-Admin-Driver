@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS community_managers (
     community_id     VARCHAR(50)  NOT NULL,
     manager_name     VARCHAR(150) NOT NULL,
     manager_email    VARCHAR(150) NOT NULL,
+    country_code     VARCHAR(10)  NOT NULL DEFAULT '+971',
     manager_contact  VARCHAR(20)  NOT NULL,
     password         VARCHAR(255) NOT NULL,
     status           TINYINT(1)   NOT NULL DEFAULT 1,

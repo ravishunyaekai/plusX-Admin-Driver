@@ -147,7 +147,7 @@ export const communityDetail = asyncHandler(async (req, resp) => {
 
     const manager = await queryDB(`
         SELECT 
-            manager_id, manager_name, manager_email, manager_contact, status, ${formatDateTimeInQuery(['created_at'])}
+            manager_id, manager_name, manager_email, country_code, manager_contact, status, ${formatDateTimeInQuery(['created_at'])}
         FROM community_managers 
         WHERE community_id = ?`, [ community_id ]
     );
@@ -166,7 +166,7 @@ export const addCommunity = asyncHandler(async (req, resp) => {
     try {
         const {
             community_name, area_name, total_residence, chargers, kwValues,
-            manager_name, manager_email, manager_contact, password
+            manager_name, manager_email, manager_contact, country_code = '+971', password
         } = req.body;
         
         // return resp.json({ status : 0, message : "Community added successfully.", body : req.body });
@@ -224,8 +224,8 @@ export const addCommunity = asyncHandler(async (req, resp) => {
 
         const hashedPswd = await bcrypt.hash(password, 10);
         const managerInsert = await insertRecord('community_managers',
-            [ 'manager_id', 'community_id', 'manager_name', 'manager_email', 'manager_contact', 'password', 'status' ],
-            [ 'manager_id', community_id, manager_name, manager_email, manager_contact, hashedPswd, 1 ]
+            [ 'manager_id', 'community_id', 'manager_name', 'manager_email', 'country_code', 'manager_contact', 'password', 'status' ],
+            [ 'manager_id', community_id, manager_name, manager_email, country_code || '+971', manager_contact, hashedPswd, 1 ]
         );
         if (managerInsert.affectedRows == 0) {
             return resp.json({ status: 0, message: "Community added but failed to add community manager. Please try again." });
@@ -245,7 +245,7 @@ export const editCommunity = asyncHandler(async (req, resp) => {
     try {
         const {
             community_id, community_name, area_name, total_residence, chargers, kwValues,
-            manager_name, manager_email, manager_contact, password
+            manager_name, manager_email, manager_contact, country_code = '+971', password
         } = req.body;
         
         // return resp.json({ status : 0, message : "Community added successfully.", body : req.body });
@@ -296,7 +296,7 @@ export const editCommunity = asyncHandler(async (req, resp) => {
             );
         }
 
-        const managerUpdtObj = { manager_name, manager_email, manager_contact };
+        const managerUpdtObj = { manager_name, manager_email, manager_contact, country_code: country_code || '+971' };
         if (password) {
             managerUpdtObj.password = await bcrypt.hash(password, 10);
         }

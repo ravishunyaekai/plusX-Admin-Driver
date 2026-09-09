@@ -194,7 +194,7 @@ export const allRsaList = async (req, resp) => {
 };
 
 export const rsaAdd = asyncHandler(async (req, resp) => {
-    const{ rsa_name, rsa_email, mobile, service_type, password, confirm_password } = req.body;
+    const{ rsa_name, rsa_email, mobile, country_code = '+971', service_type, password, confirm_password } = req.body;
     const { isValid, errors } = validateFields(req.body, { 
         rsa_name         : ["required"],
         rsa_email        : ["required"],
@@ -234,7 +234,7 @@ export const rsaAdd = asyncHandler(async (req, resp) => {
     const insert = await insertRecord('rsa', [
         'rsa_id', 'rsa_name', 'email', 'country_code', 'mobile', 'booking_type', 'password', 'status', 'running_order', 'profile_img'
     ], [
-        `${rsaNameArr[0]}-${generateUniqueId({length:5})}`, rsa_name, rsa_email, '+971', mobile, service_type, hashedPswd, 0, 0, profile_image
+        `${rsaNameArr[0]}-${generateUniqueId({length:5})}`, rsa_name, rsa_email, country_code || '+971', mobile, service_type, hashedPswd, 0, 0, profile_image
     ]);
     
     return resp.json({
@@ -245,7 +245,7 @@ export const rsaAdd = asyncHandler(async (req, resp) => {
 });
 
 export const rsaUpdate = asyncHandler(async (req, resp) => {
-    const{ rsa_id, rsa_name, rsa_email, mobile, service_type, password, confirm_password } = req.body;
+    const{ rsa_id, rsa_name, rsa_email, mobile, country_code = '+971', service_type, password, confirm_password } = req.body;
     const { isValid, errors } = validateFields(req.body, { 
         rsa_id: ["required"],
         rsa_name: ["required"],
@@ -263,7 +263,7 @@ export const rsaUpdate = asyncHandler(async (req, resp) => {
     
     const rsaData = await queryDB(`SELECT profile_img FROM rsa WHERE rsa_id = ?`, [rsa_id]);
     const profile_image = req.files['profile_image'] ? files['profile_image'][0].filename : rsaData.profile_img;
-    const updates = {rsa_name, email: rsa_email, mobile, booking_type: service_type, profile_img: profile_image};
+    const updates = {rsa_name, email: rsa_email, country_code: country_code || '+971', mobile, booking_type: service_type, profile_img: profile_image};
 
     if(password) updates.password = await bcrypt.hash(password, 10);
 

@@ -860,7 +860,7 @@ export const deleteEVChargerGallery = asyncHandler(async (req, resp) => {
 export const PurchaseHistoryAdd = asyncHandler(async (req, resp) => {
     try {
         
-        const { customer_name, customer_email, customer_mobile, customer_address=null, product_name, output_Power=null, price=0, type_of_service, purchase_date=null, warranty_expiry_date=null, installation_date=null } = req.body;
+        const { customer_name, customer_email, customer_mobile, country_code = '+971', customer_address=null, product_name, output_Power=null, price=0, type_of_service, purchase_date=null, warranty_expiry_date=null, installation_date=null } = req.body;
 
         const purchase_pdf = req.files['purchase_invoice_pdf'] ? req.files['purchase_invoice_pdf'][0].filename : null;
 
@@ -891,11 +891,11 @@ export const PurchaseHistoryAdd = asyncHandler(async (req, resp) => {
         const installationDate = installation_date ? moment(installation_date, "DD-MM-YYYY").format("YYYY-MM-DD") : null; 
 
         const insert = await insertRecord('purchase_history', [
-            'purchase_id', 'customer_name', 'customer_email', 'customer_mobile', 'customer_address', 'product_name', 'output_Power', 'price', 'type_of_service', 
+            'purchase_id', 'customer_name', 'customer_email', 'country_code', 'customer_mobile', 'customer_address', 'product_name', 'output_Power', 'price', 'type_of_service', 
             'purchase_date', 'warranty_expiry_date', 'installation_date', 
             'purchase_invoice_pdf', 'installation_invoice_pdf', 'completion_certificate_pdf'
         ],[
-            'PRH', customer_name, customer_email, customer_mobile, customer_address, 
+            'PRH', customer_name, customer_email, country_code || '+971', customer_mobile, customer_address, 
             product_name, output_Power, price, type_of_service, 
             purchaseDate, warrantyExpDate, installationDate,
             purchase_pdf, installation_pdf, completion_pdf
@@ -1043,7 +1043,7 @@ export const PurchaseHistoryDetails = asyncHandler(async (req, resp) => {
          
         const purchaseDetails = await queryDB(`
             SELECT 
-                purchase_id, customer_name, customer_email, customer_mobile, customer_address, 
+                purchase_id, customer_name, customer_email, country_code, customer_mobile, customer_address, 
                 product_name, output_Power, price, type_of_service, purchase_invoice_pdf, installation_invoice_pdf, completion_certificate_pdf, created_at,
                 ${formatDateInQuery(['purchase_date'])}, ${formatDateInQuery(['warranty_expiry_date'])}, ${formatDateInQuery(['installation_date'])}
             FROM 
@@ -1072,7 +1072,7 @@ export const PurchaseHistoryDetails = asyncHandler(async (req, resp) => {
 
 export const PurchaseHistoryEdit = asyncHandler(async (req, resp) => {
     try {
-        const { purchase_id, customer_name, customer_email, customer_mobile, customer_address=null, product_name, output_Power=null, price=0, type_of_service, purchase_date=null, warranty_expiry_date=null, installation_date=null 
+        const { purchase_id, customer_name, customer_email, customer_mobile, country_code = '+971', customer_address=null, product_name, output_Power=null, price=0, type_of_service, purchase_date=null, warranty_expiry_date=null, installation_date=null 
         } = req.body;
         
         const { isValid, errors } = validateFields({ 
@@ -1109,7 +1109,7 @@ export const PurchaseHistoryEdit = asyncHandler(async (req, resp) => {
         const installationDate = installation_date ? moment(installation_date, "DD-MM-YYYY").format("YYYY-MM-DD") : null; 
  
         const updates = { 
-            customer_name, customer_email, customer_mobile, customer_address, 
+            customer_name, customer_email, country_code: country_code || '+971', customer_mobile, customer_address, 
             product_name, output_Power, price, type_of_service, 
         
             purchase_date              : purchaseDate,

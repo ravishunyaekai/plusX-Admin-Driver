@@ -106,13 +106,15 @@ const validateInquiryPayload = (body) => {
         lost_cancelled_remark,
     } = body;
 
+    // Temporarily optional — restore when required again
+    // email_id             : ['required'],
+    // assigned_person_name : ['required'],
     const { isValid, errors } = validateFields(body, {
-        customer_name        : ['required'],
-        mobile_no            : ['required'],
-        email_id             : ['required'],
-        lead_source          : ['required'],
-        assigned_person_name : ['required'],
-        enquiry_status       : ['required'],
+        customer_name : ['required'],
+        mobile_no     : ['required'],
+        country_code  : ['required'],
+        lead_source   : ['required'],
+        enquiry_status: ['required'],
     });
     if (!isValid) return { isValid: false, errors };
 
@@ -143,27 +145,28 @@ const validateInquiryPayload = (body) => {
         return { isValid: false, errors: ['Invalid charger_availability value.'] };
     }
 
-    if (follow_up_required === 'Yes') {
-        if (!next_follow_up_date || !follow_up_remarks?.trim()) {
-            return {
-                isValid: false,
-                errors: ['next_follow_up_date and follow_up_remarks are required when follow_up_required is Yes.'],
-            };
-        }
-    }
+    // Temporarily optional — restore when required again
+    // if (follow_up_required === 'Yes') {
+    //     if (!next_follow_up_date || !follow_up_remarks?.trim()) {
+    //         return {
+    //             isValid: false,
+    //             errors: ['next_follow_up_date and follow_up_remarks are required when follow_up_required is Yes.'],
+    //         };
+    //     }
+    // }
 
-    if (site_visit_required === 'Yes') {
-        if (!site_visit_date || !site_visit_location?.trim() || !site_visit_person?.trim()) {
-            return {
-                isValid: false,
-                errors: ['site_visit_date, site_visit_location and site_visit_person are required when site_visit_required is Yes.'],
-            };
-        }
-    }
+    // if (site_visit_required === 'Yes') {
+    //     if (!site_visit_date || !site_visit_location?.trim() || !site_visit_person?.trim()) {
+    //         return {
+    //             isValid: false,
+    //             errors: ['site_visit_date, site_visit_location and site_visit_person are required when site_visit_required is Yes.'],
+    //         };
+    //     }
+    // }
 
-    if (enquiryStatusCode === 'LCN' && !lost_cancelled_remark?.trim()) {
-        return { isValid: false, errors: ['lost_cancelled_remark is required when enquiry_status is Lost / Cancelled.'] };
-    }
+    // if (enquiryStatusCode === 'LCN' && !lost_cancelled_remark?.trim()) {
+    //     return { isValid: false, errors: ['lost_cancelled_remark is required when enquiry_status is Lost / Cancelled.'] };
+    // }
 
     return { isValid: true, errors: [], enquiryStatusCode };
 };

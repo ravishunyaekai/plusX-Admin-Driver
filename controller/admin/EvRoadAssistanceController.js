@@ -5,7 +5,7 @@ import { createNotification, pushNotification, asyncHandler, formatDateTimeInQue
 import moment from 'moment';
 import emailQueue from '../../emailQueue.js';
 import generateUniqueId from 'generate-unique-id';
-// import { sendAppDownloadWhatsApp } from '../../whatsappService.js';
+import { sendAppDownloadWhatsApp } from '../../whatsappService.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -534,6 +534,30 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         await commitTransaction(connection);
         connection = null;
 
+        // MessageBot WhatsApp after successful completed offline booking.
+        // Failures are logged only — booking create must not fail because of WhatsApp.
+        let whatsapp_status = 'not_applicable';
+        let whatsapp_campaign_id = null;
+        if (isCompleted) {
+            try {
+                const whatsappResult = await sendAppDownloadWhatsApp({
+                    customerName : customer_name,
+                    countryCode  : country_code || '+971',
+                    mobile       : mobile_no,
+                    campaignName : `RSA_Offline_${request_id}`,
+                });
+                whatsapp_status = 'accepted';
+                whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
+            } catch (whatsappError) {
+                whatsapp_status = 'failed';
+                console.error('[addOfflineRSABooking] WhatsApp message failed:', {
+                    request_id,
+                    rider_id,
+                    error: whatsappError.response?.data || whatsappError.message,
+                });
+            }
+        }
+
         return resp.json({
             status               : 1,
             code                 : 200,
@@ -547,6 +571,8 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             proof_of_transaction   : proofOfTransaction,
             booking_date           : bookingDate,
             booking_completed_date : completedDate,
+            whatsapp_status,
+            whatsapp_campaign_id,
         });
     } catch (error) {
         if (connection) {

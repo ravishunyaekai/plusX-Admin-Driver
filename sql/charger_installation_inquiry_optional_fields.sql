@@ -1,0 +1,35 @@
+-- Make optional fields nullable.
+-- Required (unchanged): id, inquiry_id, customer_name, mobile_no, country_code, lead_source, enquiry_status, created_at, updated_at.
+-- Run this on the existing table.
+
+ALTER TABLE charger_installation_inquiry
+    MODIFY COLUMN email_id                     VARCHAR(150) NULL,
+    MODIFY COLUMN assigned_person_name         VARCHAR(150) NULL,
+    MODIFY COLUMN customer_feedback            TEXT         NULL,
+    MODIFY COLUMN follow_up_required           ENUM('Yes', 'No') NULL,
+    MODIFY COLUMN next_follow_up_date          DATE         NULL,
+    MODIFY COLUMN follow_up_remarks            TEXT         NULL,
+    MODIFY COLUMN site_visit_required          ENUM('Yes', 'No') NULL,
+    MODIFY COLUMN site_visit_date              DATE         NULL,
+    MODIFY COLUMN site_visit_time              VARCHAR(20)  NULL,
+    MODIFY COLUMN site_visit_location          TEXT         NULL,
+    MODIFY COLUMN site_visit_person            VARCHAR(150) NULL,
+    MODIFY COLUMN site_visit_status            VARCHAR(50)  NULL,
+    MODIFY COLUMN site_visit_remarks           TEXT         NULL,
+    MODIFY COLUMN cabling_required             ENUM('Yes', 'No') NULL,
+    MODIFY COLUMN civil_work_required          ENUM('Yes', 'No') NULL,
+    MODIFY COLUMN existing_electrical_setup    TEXT         NULL,
+    MODIFY COLUMN charger_availability         VARCHAR(50)  NULL,
+    MODIFY COLUMN charger_capacity             VARCHAR(100) NULL,
+    MODIFY COLUMN charger_cost                 DECIMAL(10, 2) NULL,
+    MODIFY COLUMN material_requirement_details TEXT         NULL,
+    MODIFY COLUMN material_cost_to_us          DECIMAL(10, 2) NULL,
+    MODIFY COLUMN material_cost_quoted         DECIMAL(10, 2) NULL,
+    MODIFY COLUMN installation_date            DATE         NULL,
+    MODIFY COLUMN installation_person          VARCHAR(150) NULL,
+    MODIFY COLUMN installation_completion_date DATE         NULL,
+    MODIFY COLUMN installation_completed_by    VARCHAR(150) NULL,
+    MODIFY COLUMN final_amount                 DECIMAL(10, 2) NULL,
+    MODIFY COLUMN completion_certificate       VARCHAR(255) NULL,
+    MODIFY COLUMN charger_purchase_invoice     VARCHAR(255) NULL,
+    MODIFY COLUMN lost_cancelled_remark        TEXT         NULL;

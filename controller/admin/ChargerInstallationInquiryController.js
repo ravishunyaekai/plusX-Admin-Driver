@@ -29,8 +29,10 @@ const ENQUIRY_STATUS_MAP = {
     'INSTALLATION SCHEDULED' : 'ISC',
     'INC'                    : 'INC',
     'INSTALLATION COMPLETED' : 'INC',
-    'LCN'                    : 'LCN',
-    'LOST / CANCELLED'       : 'LCN',
+    'LCN'                           : 'LCN',
+    'LOST / CANCELLED'              : 'LCN',
+    'ON HOLD'                       : 'LCN',
+    'LOST / CANCELLED / ON HOLD'    : 'LCN',
 };
 
 const ENQUIRY_STATUS_LABEL = {
@@ -42,7 +44,7 @@ const ENQUIRY_STATUS_LABEL = {
     QSH : 'Quotation Shared',
     ISC : 'Installation Scheduled',
     INC : 'Installation Completed',
-    LCN : 'Lost / Cancelled',
+    LCN : 'Lost / Cancelled / On Hold',
 };
 
 const resolveEnquiryStatus = (value) => {

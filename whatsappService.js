@@ -3,6 +3,7 @@ import FormData from 'form-data';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { queryDB, updateRecord } from './dbUtils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -134,5 +135,61 @@ export const sendAppDownloadWhatsApp = async ({
         customerName : customerName || null,
         errorCode  : data.ErrorCode ?? data.errorCode ?? null,
         description: errorDescription,
+    };
+};
+
+/**
+ * Send WhatsApp once per mobile within a single module table.
+ * RSA offline and charger inquiry are independent — each table has its own whatsapp_sent flag.
+ */
+export const sendAppDownloadWhatsAppOnceByMobile = async ({
+    tableName,
+    recordIdField,
+    recordId,
+    customerName,
+    countryCode,
+    mobile,
+    campaignName,
+    sample,
+} = {}) => {
+    if (!tableName || !recordIdField || !recordId) {
+        throw new Error('tableName, recordIdField and recordId are required');
+    }
+
+    const existing = await queryDB(
+        `SELECT ${recordIdField} AS record_id, whatsapp_campaign_id
+         FROM ${tableName}
+         WHERE mobile_no = ? AND whatsapp_sent = 1
+         LIMIT 1`,
+        [mobile]
+    );
+
+    if (existing) {
+        return {
+            skipped    : true,
+            status     : 'already_sent',
+            campaignId : existing.whatsapp_campaign_id || null,
+            customerName: customerName || null,
+            recordId   : existing.record_id || null,
+        };
+    }
+
+    const result = await sendAppDownloadWhatsApp({
+        customerName,
+        countryCode,
+        mobile,
+        campaignName,
+        sample,
+    });
+
+    await updateRecord(tableName, {
+        whatsapp_sent        : 1,
+        whatsapp_campaign_id : result.campaignId != null ? String(result.campaignId) : null,
+    }, [recordIdField], [recordId]);
+
+    return {
+        skipped : false,
+        status  : 'accepted',
+        ...result,
     };
 };

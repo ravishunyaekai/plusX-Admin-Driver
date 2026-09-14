@@ -5,7 +5,7 @@ import { createNotification, pushNotification, asyncHandler, formatDateTimeInQue
 import moment from 'moment';
 import emailQueue from '../../emailQueue.js';
 import generateUniqueId from 'generate-unique-id';
-import { sendAppDownloadWhatsApp } from '../../whatsappService.js';
+import { sendAppDownloadWhatsAppOnceByMobile } from '../../whatsappService.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -534,28 +534,29 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         await commitTransaction(connection);
         connection = null;
 
-        // MessageBot WhatsApp after successful completed offline booking.
-        // Failures are logged only — booking create must not fail because of WhatsApp.
+        // MessageBot WhatsApp after successful offline booking (CNF or PU).
+        // Skip only if this mobile already got WhatsApp on another RSA offline booking.
         let whatsapp_status = 'not_applicable';
         let whatsapp_campaign_id = null;
-        if (isCompleted) {
-            try {
-                const whatsappResult = await sendAppDownloadWhatsApp({
-                    customerName : customer_name,
-                    countryCode  : country_code || '+971',
-                    mobile       : mobile_no,
-                    campaignName : `RSA_Offline_${request_id}`,
-                });
-                whatsapp_status = 'accepted';
-                whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
-            } catch (whatsappError) {
-                whatsapp_status = 'failed';
-                console.error('[addOfflineRSABooking] WhatsApp message failed:', {
-                    request_id,
-                    rider_id,
-                    error: whatsappError.response?.data || whatsappError.message,
-                });
-            }
+        try {
+            const whatsappResult = await sendAppDownloadWhatsAppOnceByMobile({
+                tableName      : RSA_OFFLINE_BOOKING_TABLE,
+                recordIdField  : 'request_id',
+                recordId       : request_id,
+                customerName   : customer_name,
+                countryCode    : country_code || '+971',
+                mobile         : mobile_no,
+                campaignName   : `RSA_Offline_${request_id}`,
+            });
+            whatsapp_status = whatsappResult.status;
+            whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
+        } catch (whatsappError) {
+            whatsapp_status = 'failed';
+            console.error('[addOfflineRSABooking] WhatsApp message failed:', {
+                request_id,
+                rider_id,
+                error: whatsappError.response?.data || whatsappError.message,
+            });
         }
 
         return resp.json({

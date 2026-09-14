@@ -3,6 +3,7 @@ import { asyncHandler, deleteFile, mergeParam, formatDateTimeInQuery, formatDate
 import { getPaginatedData, insertRecord, updateRecord, queryDB } from '../../dbUtils.js';
 import validateFields from '../../validation.js';
 import { tryCatchErrorHandler } from '../../middleware/errorHandler.js';
+import { sendAppDownloadWhatsAppOnceByMobile } from '../../whatsappService.js';
 
 const INQUIRY_TABLE = 'charger_installation_inquiry';
 const UPLOAD_FOLDER = 'charger-installation-inquiry';
@@ -415,11 +416,37 @@ export const chargerInstallationInquiryAdd = asyncHandler(async (req, resp) => {
         const inquiry_id = buildInquiryId(insert.insertId);
         await updateRecord(INQUIRY_TABLE, { inquiry_id }, ['id'], [insert.insertId]);
 
+        // MessageBot WhatsApp after successful inquiry create.
+        // Skip only if this mobile already got WhatsApp on another charger inquiry.
+        let whatsapp_status = 'not_applicable';
+        let whatsapp_campaign_id = null;
+        try {
+            const whatsappResult = await sendAppDownloadWhatsAppOnceByMobile({
+                tableName      : INQUIRY_TABLE,
+                recordIdField  : 'inquiry_id',
+                recordId       : inquiry_id,
+                customerName   : record.customer_name,
+                countryCode    : record.country_code || '+971',
+                mobile         : record.mobile_no,
+                campaignName   : `CI_Inquiry_${inquiry_id}`,
+            });
+            whatsapp_status = whatsappResult.status;
+            whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
+        } catch (whatsappError) {
+            whatsapp_status = 'failed';
+            console.error('[chargerInstallationInquiryAdd] WhatsApp message failed:', {
+                inquiry_id,
+                error: whatsappError.response?.data || whatsappError.message,
+            });
+        }
+
         return resp.json({
             status: 1,
             code: 200,
             message: ['Inquiry added successfully'],
             inquiry_id,
+            whatsapp_status,
+            whatsapp_campaign_id,
         });
     } catch (error) {
         console.error('[chargerInstallationInquiryAdd] error:', error);

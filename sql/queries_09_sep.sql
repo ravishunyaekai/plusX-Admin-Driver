@@ -1,5 +1,5 @@
 -- queries added after 03-09-2026 live update
--- Consolidated datewise: 08-09-2026, 09-09-2026
+-- Consolidated datewise: 08-09-2026, 09-09-2026, 14-09-2026, 16-09-2026
 -- Run sections in order. Skip ALTER steps if the column/table already exists.
 
 
@@ -100,5 +100,18 @@ ALTER TABLE charger_installation_inquiry
 
 -- Optional: drop shared log if it was created earlier
 -- DROP TABLE IF EXISTS whatsapp_message_log;
+
+-----------------------------------------------------------------------------------------------------
+
+
+-- =============================================================================
+-- 16-09-2026
+-- =============================================================================
+
+-- Charger installation inquiry: link to app rider by mobile (same pattern as RSA offline)
+-- Skip if rider_id column / index already exists.
+ALTER TABLE charger_installation_inquiry
+    ADD COLUMN rider_id VARCHAR(50) NULL DEFAULT NULL AFTER inquiry_id,
+    ADD KEY idx_charger_installation_inquiry_rider_id (rider_id);
 
 -----------------------------------------------------------------------------------------------------

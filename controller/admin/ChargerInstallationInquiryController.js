@@ -76,6 +76,15 @@ const isAllowed = (value, allowed) => !value || allowed.includes(String(value).t
 
 const buildInquiryId = (insertId) => `CI-${String(insertId).padStart(3, '0')}`;
 
+// Look up an existing rider by mobile. Never create a rider for admin inquiries.
+const findRiderIdByMobile = async (mobile) => {
+    const rider = await queryDB(
+        `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
+        [mobile]
+    );
+    return rider?.rider_id || null;
+};
+
 const attachFileUrls = (inquiry) => {
     if (!inquiry) return inquiry;
     inquiry.completion_certificate_url = inquiry.completion_certificate
@@ -307,13 +316,13 @@ export const chargerInstallationInquiryList = asyncHandler(async (req, resp) => 
 
         const result = await getPaginatedData({
             tableName: INQUIRY_TABLE,
-            columns: `inquiry_id, customer_name, mobile_no, country_code, lead_source, assigned_person_name,
+            columns: `inquiry_id, rider_id, customer_name, mobile_no, country_code, lead_source, assigned_person_name,
                 enquiry_status, site_visit_status,
                 ${formatDateInQuery(['installation_date'])},
                 ${formatDateInQuery(['installation_completion_date'])},
                 ${formatDateTimeInQuery(['created_at'])}`,
-            liveSearchFields: ['inquiry_id', 'customer_name', 'mobile_no'],
-            liveSearchTexts: [search_text, search_text, search_text],
+            liveSearchFields: ['inquiry_id', 'rider_id', 'customer_name', 'mobile_no'],
+            liveSearchTexts: [search_text, search_text, search_text, search_text],
             sortColumn: 'id',
             sortOrder: 'DESC',
             page_no,
@@ -350,7 +359,7 @@ export const chargerInstallationInquiryDetails = asyncHandler(async (req, resp) 
 
         const inquiry = await queryDB(`
             SELECT
-                inquiry_id, customer_name, mobile_no, country_code, email_id, lead_source,
+                inquiry_id, rider_id, customer_name, mobile_no, country_code, email_id, lead_source,
                 assigned_person_name, customer_feedback, follow_up_required,
                 ${formatDateInQuery(['next_follow_up_date'])},
                 follow_up_remarks, site_visit_required,
@@ -404,7 +413,8 @@ export const chargerInstallationInquiryAdd = asyncHandler(async (req, resp) => {
             charger_purchase_invoice: req.files?.charger_purchase_invoice?.[0]?.filename || null,
         };
 
-        const record = buildInquiryRecord(body, files);
+        const rider_id = await findRiderIdByMobile(body.mobile_no);
+        const record = { rider_id, ...buildInquiryRecord(body, files) };
         const columns = ['inquiry_id', ...Object.keys(record)];
         const values = ['CI', ...Object.values(record)];
 
@@ -436,6 +446,7 @@ export const chargerInstallationInquiryAdd = asyncHandler(async (req, resp) => {
             whatsapp_status = 'failed';
             console.error('[chargerInstallationInquiryAdd] WhatsApp message failed:', {
                 inquiry_id,
+                rider_id,
                 error: whatsappError.response?.data || whatsappError.message,
             });
         }
@@ -445,6 +456,7 @@ export const chargerInstallationInquiryAdd = asyncHandler(async (req, resp) => {
             code: 200,
             message: ['Inquiry added successfully'],
             inquiry_id,
+            rider_id,
             whatsapp_status,
             whatsapp_campaign_id,
         });
@@ -486,7 +498,8 @@ export const chargerInstallationInquiryEdit = asyncHandler(async (req, resp) => 
             charger_purchase_invoice: newPurchaseInvoice || existing.charger_purchase_invoice || null,
         };
 
-        const record = buildInquiryRecord(body, files, existing);
+        const rider_id = await findRiderIdByMobile(body.mobile_no);
+        const record = { rider_id, ...buildInquiryRecord(body, files, existing) };
         const update = await updateRecord(INQUIRY_TABLE, record, ['inquiry_id'], [inquiry_id]);
 
         if (newCompletionCert && existing.completion_certificate) {
@@ -502,6 +515,7 @@ export const chargerInstallationInquiryEdit = asyncHandler(async (req, resp) => 
             message: update.affectedRows > 0
                 ? ['Inquiry updated successfully']
                 : ['No changes were made to the inquiry.'],
+            rider_id,
         });
     } catch (error) {
         console.error('[chargerInstallationInquiryEdit] error:', error);

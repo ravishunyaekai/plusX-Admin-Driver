@@ -140,6 +140,7 @@ INSERT INTO response_module (
 CREATE TABLE IF NOT EXISTS charger_installation_inquiry (
     id                          INT UNSIGNED NOT NULL AUTO_INCREMENT,
     inquiry_id                  VARCHAR(50)  NOT NULL,
+    rider_id                    VARCHAR(50)  NULL DEFAULT NULL,
     customer_name               VARCHAR(150) NOT NULL,
     mobile_no                   VARCHAR(20)  NOT NULL,
     country_code                VARCHAR(10)  NOT NULL DEFAULT '+971',
@@ -182,6 +183,7 @@ CREATE TABLE IF NOT EXISTS charger_installation_inquiry (
     updated_at                  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uq_charger_installation_inquiry_id (inquiry_id),
+    KEY idx_charger_installation_inquiry_rider_id (rider_id),
     KEY idx_charger_installation_inquiry_mobile (mobile_no),
     KEY idx_charger_installation_inquiry_lead_source (lead_source),
     KEY idx_charger_installation_inquiry_enquiry_status (enquiry_status),

@@ -133,6 +133,12 @@ export const riderList = async (req, resp) => {
             whereValue: [],
             whereOperator: []
         };
+        // Only show riders who signed up / logged in from the app (hide Rsa Offline / CI Offline auto-creates).
+        if (!addedFrom) {
+            params.whereField.push('added_from');
+            params.whereValue.push(['Android', 'iOS']);
+            params.whereOperator.push('IN');
+        }
         if (start_date && end_date) {
             
             // const startToday = new Date(start_date);
@@ -175,7 +181,11 @@ export const riderList = async (req, resp) => {
         }
 
         const result = await getPaginatedData(params);
-        const [emiratesResult] = await db.query('SELECT DISTINCT emirates FROM riders');
+        const [emiratesResult] = await db.query(`
+            SELECT DISTINCT emirates FROM riders
+            WHERE emirates IS NOT NULL AND emirates != ''
+              AND added_from IN ('Android', 'iOS')
+        `);
         
         return resp.json({
             status     : 1,

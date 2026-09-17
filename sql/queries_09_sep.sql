@@ -115,3 +115,23 @@ ALTER TABLE charger_installation_inquiry
     ADD KEY idx_charger_installation_inquiry_rider_id (rider_id);
 
 -----------------------------------------------------------------------------------------------------
+
+
+-- =============================================================================
+-- 17-09-2026
+-- =============================================================================
+
+-- RSA offline lead: emirates (customer location)
+-- Skip if column already exists.
+ALTER TABLE rsa_offline_booking
+    ADD COLUMN emirates VARCHAR(100) NULL DEFAULT NULL AFTER address;
+
+-- Store full offline source labels (e.g. 'Rsa Offline', 'CI Offline')
+ALTER TABLE riders
+    MODIFY COLUMN added_from VARCHAR(50) NULL DEFAULT NULL;
+
+UPDATE riders
+SET added_from = 'Rsa Offline'
+WHERE added_from IN ('Admin Offline', 'Admin Offl');
+
+-----------------------------------------------------------------------------------------------------

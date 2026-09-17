@@ -189,6 +189,7 @@ const buildInquiryRecord = (body, files = {}, existing = {}) => {
         mobile_no,
         country_code = '+971',
         email_id,
+        emirates = null,
         lead_source,
         assigned_person_name,
         customer_feedback = null,
@@ -238,6 +239,7 @@ const buildInquiryRecord = (body, files = {}, existing = {}) => {
         mobile_no,
         country_code: country_code || '+971',
         email_id,
+        emirates: emirates || null,
         lead_source,
         assigned_person_name,
         customer_feedback: customer_feedback || null,
@@ -316,7 +318,7 @@ export const chargerInstallationInquiryList = asyncHandler(async (req, resp) => 
 
         const result = await getPaginatedData({
             tableName: INQUIRY_TABLE,
-            columns: `inquiry_id, rider_id, customer_name, mobile_no, country_code, lead_source, assigned_person_name,
+            columns: `inquiry_id, rider_id, customer_name, mobile_no, country_code, emirates, lead_source, assigned_person_name,
                 enquiry_status, site_visit_status,
                 ${formatDateInQuery(['installation_date'])},
                 ${formatDateInQuery(['installation_completion_date'])},
@@ -359,7 +361,7 @@ export const chargerInstallationInquiryDetails = asyncHandler(async (req, resp) 
 
         const inquiry = await queryDB(`
             SELECT
-                inquiry_id, rider_id, customer_name, mobile_no, country_code, email_id, lead_source,
+                inquiry_id, rider_id, customer_name, mobile_no, country_code, email_id, emirates, lead_source,
                 assigned_person_name, customer_feedback, follow_up_required,
                 ${formatDateInQuery(['next_follow_up_date'])},
                 follow_up_remarks, site_visit_required,

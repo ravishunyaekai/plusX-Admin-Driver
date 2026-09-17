@@ -11,6 +11,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const RSA_OFFLINE_DEVICE_NAME = 'Admin Offline';
+const RSA_OFFLINE_ADDED_FROM  = 'Rsa Offline'; // future: 'CI Offline' for charger installation
 
 const RSA_OFFLINE_STATUS_MAP = {
     'CNF'       : 'CNF',
@@ -98,14 +99,67 @@ const resolveOfflineRsaDriver = async (rsa_id, driver_name, booking_completed_by
 
 const RSA_OFFLINE_PROOF_FOLDER = 'rsa-offline-proof';
 
-// Look up an existing rider by mobile. Never create a rider for offline bookings.
-const findRiderIdByMobile = async (mobile, connection = null) => {
-    const rider = await queryDB(
+// Find rider by mobile, or create one so the customer can OTP-login without signup.
+const findOrCreateRiderByMobile = async ({
+    mobile,
+    country_code,
+    customer_name,
+    email,
+    emirates,
+}, connection = null) => {
+    const existing = await queryDB(
         `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
         [mobile],
         connection
     );
-    return rider?.rider_id || null;
+    if (existing?.rider_id) {
+        return existing.rider_id;
+    }
+
+    const nameParts = String(customer_name || '').trim().split(/\s+/).filter(Boolean);
+    const firstName = nameParts[0] || 'Customer';
+    const lastName  = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
+    let riderEmail = email || null;
+    if (riderEmail) {
+        const emailTaken = await queryDB(
+            `SELECT rider_id FROM riders WHERE rider_email = ? LIMIT 1`,
+            [riderEmail],
+            connection
+        );
+        if (emailTaken?.rider_id) {
+            riderEmail = null;
+        }
+    }
+
+    try {
+        const insert = await insertRecord('riders', [
+            'rider_id', 'rider_name', 'last_name', 'rider_email', 'country_code',
+            'rider_mobile', 'emirates', 'status', 'added_from',
+        ], [
+            'ER', firstName, lastName, riderEmail, country_code || '+971',
+            mobile, emirates || null, 0, RSA_OFFLINE_ADDED_FROM,
+        ], connection);
+
+        if (!insert?.insertId) {
+            throw new Error('Failed to create rider for offline booking');
+        }
+
+        const riderId = 'ER' + String(insert.insertId).padStart(4, '0');
+        await updateRecord('riders', { rider_id: riderId }, ['id'], [insert.insertId], connection);
+        return riderId;
+    } catch (error) {
+        // Concurrent create for same mobile — re-read and use that rider_id.
+        const raced = await queryDB(
+            `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
+            [mobile],
+            connection
+        );
+        if (raced?.rider_id) {
+            return raced.rider_id;
+        }
+        throw error;
+    }
 };
 
 const parsePriceDetails = (value) => {
@@ -268,7 +322,7 @@ export const offlineRSABookingData = asyncHandler(async (req, resp) => {
                 DATE_FORMAT(b.booking_date, '%Y-%m-%d') AS booking_date,
                 DATE_FORMAT(b.booking_completed_date, '%Y-%m-%d') AS booking_completed_date,
                 b.customer_name AS name, b.mobile_no AS contact_no, b.email_id AS email, b.country_code,
-                b.order_status, b.address AS pickup_address, b.location_link,
+                b.order_status, b.address AS pickup_address, b.emirates, b.location_link,
                 b.vehicle_data, b.battery_level, b.jump_start_required,
                 b.price, b.booking_price, b.mode_of_payment, b.rsa_id, b.proof_of_transaction,
                 (SELECT h.driver_name FROM ${RSA_OFFLINE_HISTORY_TABLE} AS h
@@ -361,7 +415,7 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
 
     const result = await getPaginatedData({
         tableName : RSA_OFFLINE_BOOKING_TABLE,
-        columns   : `request_id, rider_id, customer_name AS name, mobile_no AS contact_no, country_code, address AS pickup_address, location_link,
+        columns   : `request_id, rider_id, customer_name AS name, mobile_no AS contact_no, country_code, address AS pickup_address, emirates, location_link,
             vehicle_data, battery_level, jump_start_required,
             rsa_id,
             (SELECT h.driver_name FROM ${RSA_OFFLINE_HISTORY_TABLE} AS h
@@ -431,8 +485,8 @@ export const offlineRSAVehicleList = asyncHandler(async (req, resp) => {
 
 export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
     const {
-        customer_name, mobile_no, email_id, emailId, country_code = '+971', location_link, address, price,
-        vehicle_make, vehicle_model, battery_level, jump_start_required, payment_status, mode_of_payment,
+        customer_name, mobile_no, email_id, emailId, country_code = '+971', location_link, address, emirates,
+        price, vehicle_make, vehicle_model, battery_level, jump_start_required, payment_status, mode_of_payment,
         transaction_id, booking_status, driver_name = null, booking_completed_by = null, rsa_id = null,
         booking_date = null, booking_completed_date = null,
     } = mergeParam(req);
@@ -447,6 +501,7 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         customer_name : ["required"],
         mobile_no     : ["required"],
         email_id      : ["required"],
+        emirates      : ["required"],
         location_link : ["required"],
         address       : ["required"],
         price         : ["required"],
@@ -483,17 +538,23 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             return resp.json({ status: 0, code: 422, message: ['Invalid RSA driver selected.'] });
         }
 
-        const rider_id = await findRiderIdByMobile(mobile_no, connection);
+        const rider_id = await findOrCreateRiderByMobile({
+            mobile        : mobile_no,
+            country_code  : country_code || '+971',
+            customer_name,
+            email,
+            emirates,
+        }, connection);
 
         const temporaryRequestId = `TMP-${generateUniqueId({ length: 12 })}`;
         const insert = await insertRecord(RSA_OFFLINE_BOOKING_TABLE, [
             'request_id', 'rider_id', 'customer_name', 'mobile_no', 'email_id', 'country_code', 'location_link', 'address',
-            'price', 'jump_start_required', 'battery_level', 'vehicle_data', 'booking_price',
+            'emirates', 'price', 'jump_start_required', 'battery_level', 'vehicle_data', 'booking_price',
             'order_status', 'payment_status', 'mode_of_payment', 'rsa_id', 'transaction_id', 'proof_of_transaction',
             'booking_date', 'booking_completed_date',
         ], [
             temporaryRequestId, rider_id, customer_name, mobile_no, email, country_code || '+971', location_link || null, address,
-            bookingPrice, jumpStart, battery_level ?? 0, vehicleData, bookingPrice,
+            emirates || null, bookingPrice, jumpStart, battery_level ?? 0, vehicleData, bookingPrice,
             orderStatus, payment_status || 'Pending', mode_of_payment || null, driverInfo.rsa_id, transaction_id || null, proofOfTransaction,
             bookingDate, completedDate,
         ], connection);
@@ -586,8 +647,8 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
 
 export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
     const {
-        request_id, customer_name, mobile_no, email_id, emailId, country_code = '+971', location_link, address, price,
-        vehicle_make, vehicle_model, battery_level, jump_start_required, payment_status, mode_of_payment,
+        request_id, customer_name, mobile_no, email_id, emailId, country_code = '+971', location_link, address, emirates,
+        price, vehicle_make, vehicle_model, battery_level, jump_start_required, payment_status, mode_of_payment,
         transaction_id, booking_status, driver_name = null, booking_completed_by = null, rsa_id = null,
         booking_date = null, booking_completed_date = null,
     } = mergeParam(req);
@@ -603,6 +664,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         customer_name : ["required"],
         mobile_no     : ["required"],
         email_id      : ["required"],
+        emirates      : ["required"],
         location_link : ["required"],
         address       : ["required"],
         price         : ["required"],
@@ -657,7 +719,13 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             return resp.json({ status: 0, code: 422, message: ['Invalid RSA driver selected.'] });
         }
 
-        const rider_id = await findRiderIdByMobile(mobile_no, connection);
+        const rider_id = await findOrCreateRiderByMobile({
+            mobile        : mobile_no,
+            country_code  : country_code || '+971',
+            customer_name,
+            email,
+            emirates,
+        }, connection);
 
         const update = await updateRecord(RSA_OFFLINE_BOOKING_TABLE, {
             rider_id,
@@ -667,6 +735,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             country_code          : country_code || '+971',
             location_link         : location_link || null,
             address,
+            emirates              : emirates || null,
             price                 : bookingPrice,
             jump_start_required   : jumpStart,
             battery_level         : battery_level ?? 0,

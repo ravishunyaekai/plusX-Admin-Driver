@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS rsa_offline_booking (
     country_code         VARCHAR(10)  NOT NULL DEFAULT '+971',
     location_link        TEXT         NULL,
     address              TEXT         NOT NULL,
+    emirates             VARCHAR(100) NULL DEFAULT NULL,
     price                DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     jump_start_required  ENUM('Yes', 'No') NOT NULL DEFAULT 'No',
     battery_level        INT          NULL DEFAULT 0,

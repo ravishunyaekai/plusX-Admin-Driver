@@ -125,9 +125,9 @@ export const getPaginatedData = async ({
   if (whereField.length > 0 && whereValue.length > 0) {
     whereField.forEach((field, index) => {
       const operator = whereOperator[index] || '=';
-      if (operator.toUpperCase() === 'NOT IN') {
+      if (operator.toUpperCase() === 'IN' || operator.toUpperCase() === 'NOT IN') {
         const placeholders = whereValue[index].map(() => '?').join(', ');
-        whereCondition += (index === 0 ? ' WHERE ' : ' AND ') + `${field} NOT IN (${placeholders})`;
+        whereCondition += (index === 0 ? ' WHERE ' : ' AND ') + `${field} ${operator.toUpperCase()} (${placeholders})`;
         queryParams.push(...whereValue[index]);
       } else {
         whereCondition += (index === 0 ? ' WHERE ' : ' AND ') + `${field} ${operator} ?`;

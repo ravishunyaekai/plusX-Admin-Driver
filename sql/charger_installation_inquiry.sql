@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS charger_installation_inquiry (
     mobile_no                   VARCHAR(20)  NOT NULL,
     country_code                VARCHAR(10)  NOT NULL DEFAULT '+971',
     email_id                    VARCHAR(150) NOT NULL,
+    emirates                    VARCHAR(100) NULL DEFAULT NULL,
     lead_source                 VARCHAR(50)  NOT NULL,
     assigned_person_name        VARCHAR(150) NOT NULL,
     customer_feedback           TEXT         NULL,

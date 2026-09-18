@@ -135,3 +135,15 @@ SET added_from = 'Rsa Offline'
 WHERE added_from IN ('Admin Offline', 'Admin Offl');
 
 -----------------------------------------------------------------------------------------------------
+
+
+-- =============================================================================
+-- 18-09-2026
+-- =============================================================================
+
+-- Charger installation inquiry: emirates (customer location)
+-- Skip if column already exists.
+ALTER TABLE charger_installation_inquiry
+    ADD COLUMN emirates VARCHAR(100) NULL DEFAULT NULL AFTER email_id;
+
+-----------------------------------------------------------------------------------------------------

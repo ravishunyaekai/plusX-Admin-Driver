@@ -3,7 +3,7 @@ import { asyncHandler, deleteFile, mergeParam, formatDateTimeInQuery, formatDate
 import { getPaginatedData, insertRecord, updateRecord, queryDB } from '../../dbUtils.js';
 import validateFields from '../../validation.js';
 import { tryCatchErrorHandler } from '../../middleware/errorHandler.js';
-import { sendAppDownloadWhatsAppOnceByMobile } from '../../whatsappService.js';
+// import { sendAppDownloadWhatsAppOnceByMobile } from '../../whatsappService.js';
 
 const INQUIRY_TABLE = 'charger_installation_inquiry';
 const UPLOAD_FOLDER = 'charger-installation-inquiry';
@@ -428,30 +428,32 @@ export const chargerInstallationInquiryAdd = asyncHandler(async (req, resp) => {
         const inquiry_id = buildInquiryId(insert.insertId);
         await updateRecord(INQUIRY_TABLE, { inquiry_id }, ['id'], [insert.insertId]);
 
-        // MessageBot WhatsApp after successful inquiry create.
-        // Skip only if this mobile already got WhatsApp on another charger inquiry.
-        let whatsapp_status = 'not_applicable';
-        let whatsapp_campaign_id = null;
-        try {
-            const whatsappResult = await sendAppDownloadWhatsAppOnceByMobile({
-                tableName      : INQUIRY_TABLE,
-                recordIdField  : 'inquiry_id',
-                recordId       : inquiry_id,
-                customerName   : record.customer_name,
-                countryCode    : record.country_code || '+971',
-                mobile         : record.mobile_no,
-                campaignName   : `CI_Inquiry_${inquiry_id}`,
-            });
-            whatsapp_status = whatsappResult.status;
-            whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
-        } catch (whatsappError) {
-            whatsapp_status = 'failed';
-            console.error('[chargerInstallationInquiryAdd] WhatsApp message failed:', {
-                inquiry_id,
-                rider_id,
-                error: whatsappError.response?.data || whatsappError.message,
-            });
-        }
+        // WhatsApp only when enquiry status is Installation Completed (INC).
+        // Skip if this mobile already got WhatsApp on another charger inquiry.
+        // let whatsapp_status = 'not_applicable';
+        // let whatsapp_campaign_id = null;
+        // if (record.enquiry_status === 'INC') {
+        //     try {
+        //         const whatsappResult = await sendAppDownloadWhatsAppOnceByMobile({
+        //             tableName      : INQUIRY_TABLE,
+        //             recordIdField  : 'inquiry_id',
+        //             recordId       : inquiry_id,
+        //             customerName   : record.customer_name,
+        //             countryCode    : record.country_code || '+971',
+        //             mobile         : record.mobile_no,
+        //             campaignName   : `CI_Inquiry_${inquiry_id}`,
+        //         });
+        //         whatsapp_status = whatsappResult.status;
+        //         whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
+        //     } catch (whatsappError) {
+        //         whatsapp_status = 'failed';
+        //         console.error('[chargerInstallationInquiryAdd] WhatsApp message failed:', {
+        //             inquiry_id,
+        //             rider_id,
+        //             error: whatsappError.response?.data || whatsappError.message,
+        //         });
+        //     }
+        // }
 
         return resp.json({
             status: 1,
@@ -459,8 +461,8 @@ export const chargerInstallationInquiryAdd = asyncHandler(async (req, resp) => {
             message: ['Inquiry added successfully'],
             inquiry_id,
             rider_id,
-            whatsapp_status,
-            whatsapp_campaign_id,
+            // whatsapp_status,
+            // whatsapp_campaign_id,
         });
     } catch (error) {
         console.error('[chargerInstallationInquiryAdd] error:', error);
@@ -511,6 +513,33 @@ export const chargerInstallationInquiryEdit = asyncHandler(async (req, resp) => 
             deleteFile(UPLOAD_FOLDER, existing.charger_purchase_invoice);
         }
 
+        // WhatsApp only when enquiry status is Installation Completed (INC).
+        // Skip if this mobile already got WhatsApp on another charger inquiry.
+        // let whatsapp_status = 'not_applicable';
+        // let whatsapp_campaign_id = null;
+        // if (update.affectedRows > 0 && record.enquiry_status === 'INC') {
+        //     try {
+        //         const whatsappResult = await sendAppDownloadWhatsAppOnceByMobile({
+        //             tableName      : INQUIRY_TABLE,
+        //             recordIdField  : 'inquiry_id',
+        //             recordId       : inquiry_id,
+        //             customerName   : record.customer_name,
+        //             countryCode    : record.country_code || '+971',
+        //             mobile         : record.mobile_no,
+        //             campaignName   : `CI_Inquiry_${inquiry_id}`,
+        //         });
+        //         whatsapp_status = whatsappResult.status;
+        //         whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
+        //     } catch (whatsappError) {
+        //         whatsapp_status = 'failed';
+        //         console.error('[chargerInstallationInquiryEdit] WhatsApp message failed:', {
+        //             inquiry_id,
+        //             rider_id,
+        //             error: whatsappError.response?.data || whatsappError.message,
+        //         });
+        //     }
+        // }
+
         return resp.json({
             status: update.affectedRows > 0 ? 1 : 0,
             code: 200,
@@ -518,6 +547,8 @@ export const chargerInstallationInquiryEdit = asyncHandler(async (req, resp) => 
                 ? ['Inquiry updated successfully']
                 : ['No changes were made to the inquiry.'],
             rider_id,
+            // whatsapp_status,
+            // whatsapp_campaign_id,
         });
     } catch (error) {
         console.error('[chargerInstallationInquiryEdit] error:', error);

@@ -100,6 +100,7 @@ const resolveOfflineRsaDriver = async (rsa_id, driver_name, booking_completed_by
 const RSA_OFFLINE_PROOF_FOLDER = 'rsa-offline-proof';
 
 // Find rider by mobile, or create one so the customer can OTP-login without signup.
+// Returns { rider_id, isNewRider } so WhatsApp can target newly created users only.
 const findOrCreateRiderByMobile = async ({
     mobile,
     country_code,
@@ -113,7 +114,7 @@ const findOrCreateRiderByMobile = async ({
         connection
     );
     if (existing?.rider_id) {
-        return existing.rider_id;
+        return { rider_id: existing.rider_id, isNewRider: false };
     }
 
     const nameParts = String(customer_name || '').trim().split(/\s+/).filter(Boolean);
@@ -147,7 +148,7 @@ const findOrCreateRiderByMobile = async ({
 
         const riderId = 'ER' + String(insert.insertId).padStart(4, '0');
         await updateRecord('riders', { rider_id: riderId }, ['id'], [insert.insertId], connection);
-        return riderId;
+        return { rider_id: riderId, isNewRider: true };
     } catch (error) {
         // Concurrent create for same mobile — re-read and use that rider_id.
         const raced = await queryDB(
@@ -156,7 +157,7 @@ const findOrCreateRiderByMobile = async ({
             connection
         );
         if (raced?.rider_id) {
-            return raced.rider_id;
+            return { rider_id: raced.rider_id, isNewRider: false };
         }
         throw error;
     }
@@ -538,7 +539,7 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             return resp.json({ status: 0, code: 422, message: ['Invalid RSA driver selected.'] });
         }
 
-        const rider_id = await findOrCreateRiderByMobile({
+        const { rider_id, isNewRider } = await findOrCreateRiderByMobile({
             mobile        : mobile_no,
             country_code  : country_code || '+971',
             customer_name,
@@ -595,29 +596,32 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         await commitTransaction(connection);
         connection = null;
 
-        // MessageBot WhatsApp after successful offline booking (CNF or PU).
-        // Skip only if this mobile already got WhatsApp on another RSA offline booking.
+        // WhatsApp only for newly created riders when booking is Completed (PU).
         let whatsapp_status = 'not_applicable';
         let whatsapp_campaign_id = null;
-        try {
-            const whatsappResult = await sendAppDownloadWhatsAppOnceByMobile({
-                tableName      : RSA_OFFLINE_BOOKING_TABLE,
-                recordIdField  : 'request_id',
-                recordId       : request_id,
-                customerName   : customer_name,
-                countryCode    : country_code || '+971',
-                mobile         : mobile_no,
-                campaignName   : `RSA_Offline_${request_id}`,
-            });
-            whatsapp_status = whatsappResult.status;
-            whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
-        } catch (whatsappError) {
-            whatsapp_status = 'failed';
-            console.error('[addOfflineRSABooking] WhatsApp message failed:', {
-                request_id,
-                rider_id,
-                error: whatsappError.response?.data || whatsappError.message,
-            });
+        if (isCompleted && isNewRider) {
+            try {
+                const whatsappResult = await sendAppDownloadWhatsAppOnceByMobile({
+                    tableName      : RSA_OFFLINE_BOOKING_TABLE,
+                    recordIdField  : 'request_id',
+                    recordId       : request_id,
+                    customerName   : customer_name,
+                    countryCode    : country_code || '+971',
+                    mobile         : mobile_no,
+                    campaignName   : `RSA_Offline_${request_id}`,
+                });
+                whatsapp_status = whatsappResult.status;
+                whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
+            } catch (whatsappError) {
+                whatsapp_status = 'failed';
+                console.error('[addOfflineRSABooking] WhatsApp message failed:', {
+                    request_id,
+                    rider_id,
+                    error: whatsappError.response?.data || whatsappError.message,
+                });
+            }
+        } else if (isCompleted && !isNewRider) {
+            whatsapp_status = 'skipped_existing_user';
         }
 
         return resp.json({
@@ -719,7 +723,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             return resp.json({ status: 0, code: 422, message: ['Invalid RSA driver selected.'] });
         }
 
-        const rider_id = await findOrCreateRiderByMobile({
+        const { rider_id, isNewRider } = await findOrCreateRiderByMobile({
             mobile        : mobile_no,
             country_code  : country_code || '+971',
             customer_name,
@@ -833,6 +837,34 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         await commitTransaction(connection);
         connection = null;
 
+        // WhatsApp only for newly created riders when booking is Completed (PU).
+        let whatsapp_status = 'not_applicable';
+        let whatsapp_campaign_id = null;
+        if (isCompleted && isNewRider) {
+            try {
+                const whatsappResult = await sendAppDownloadWhatsAppOnceByMobile({
+                    tableName      : RSA_OFFLINE_BOOKING_TABLE,
+                    recordIdField  : 'request_id',
+                    recordId       : request_id,
+                    customerName   : customer_name,
+                    countryCode    : country_code || '+971',
+                    mobile         : mobile_no,
+                    campaignName   : `RSA_Offline_${request_id}`,
+                });
+                whatsapp_status = whatsappResult.status;
+                whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
+            } catch (whatsappError) {
+                whatsapp_status = 'failed';
+                console.error('[editOfflineRSABooking] WhatsApp message failed:', {
+                    request_id,
+                    rider_id,
+                    error: whatsappError.response?.data || whatsappError.message,
+                });
+            }
+        } else if (isCompleted && !isNewRider) {
+            whatsapp_status = 'skipped_existing_user';
+        }
+
         return resp.json({
             status               : 1,
             code                 : 200,
@@ -848,6 +880,8 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             booking_date           : bookingDate,
             booking_completed_date : completedDate,
             invoice_created        : isCompleted && !wasCompleted && !!invoice_id && !existingInvoice,
+            whatsapp_status,
+            whatsapp_campaign_id,
         });
     } catch (error) {
         if (connection) {

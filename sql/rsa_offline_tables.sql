@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS rsa_offline_booking (
     proof_of_transaction VARCHAR(255) NULL,
     booking_date         DATE         NULL,
     booking_completed_date DATE       NULL,
+    cancellation_remarks TEXT         NULL,
+    cancelled_by         VARCHAR(50)  NULL,
     created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),

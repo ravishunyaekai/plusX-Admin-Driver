@@ -36,19 +36,25 @@ const resolveExtension = (filePath, fallback = 'jpg') => {
     return ext === 'jpeg' ? 'jpg' : ext;
 };
 
-const resolveTemplateMedia = () => {
-    const { WHATSAPP_TEMPLATE_MEDIA_PATH } = process.env;
+/**
+ * Resolve template media file from env.
+ * Default: WHATSAPP_TEMPLATE_MEDIA_PATH (./uploads/whatsapp/...).
+ * Existing-user override key: WHATSAPP_EXISTING_USER_TEMPLATE_MEDIA_PATH
+ * (falls back to WHATSAPP_TEMPLATE_MEDIA_PATH when not set).
+ */
+const resolveTemplateMedia = (mediaPathEnvKey = 'WHATSAPP_TEMPLATE_MEDIA_PATH') => {
+    const mediaPath = process.env[mediaPathEnvKey] || process.env.WHATSAPP_TEMPLATE_MEDIA_PATH;
 
-    if (!WHATSAPP_TEMPLATE_MEDIA_PATH) {
-        throw new Error('Missing WhatsApp configuration: WHATSAPP_TEMPLATE_MEDIA_PATH');
+    if (!mediaPath) {
+        throw new Error(`Missing WhatsApp configuration: ${mediaPathEnvKey}`);
     }
 
-    const configuredPath = path.isAbsolute(WHATSAPP_TEMPLATE_MEDIA_PATH)
-        ? WHATSAPP_TEMPLATE_MEDIA_PATH
-        : path.resolve(__dirname, WHATSAPP_TEMPLATE_MEDIA_PATH);
+    const configuredPath = path.isAbsolute(mediaPath)
+        ? mediaPath
+        : path.resolve(__dirname, mediaPath);
 
     if (!fs.existsSync(configuredPath)) {
-        throw new Error(`WhatsApp template media not found at WHATSAPP_TEMPLATE_MEDIA_PATH: ${configuredPath}`);
+        throw new Error(`WhatsApp template media not found at ${mediaPathEnvKey}: ${configuredPath}`);
     }
 
     return {
@@ -59,8 +65,16 @@ const resolveTemplateMedia = () => {
 
 /**
  * Send WhatsApp template via MessageBot Public API.
- * Env required: WHATSAPP_API_TOKEN, WHATSAPP_TEMPLATE_ID,
+ *
+ * Shared by new and existing riders — same function, different templateId.
+ * Env required: WHATSAPP_API_TOKEN, WHATSAPP_TEMPLATE_ID (default / new user),
  * WHATSAPP_API_BASE_URL, WHATSAPP_TEMPLATE_MEDIA_PATH
+ *
+ * New user (default): uses WHATSAPP_TEMPLATE_ID (e.g. 29) when templateId is omitted.
+ * Existing user: pass templateId = WHATSAPP_EXISTING_USER_TEMPLATE_ID (e.g. 30)
+ *   and optionally mediaPathEnvKey = 'WHATSAPP_EXISTING_USER_TEMPLATE_MEDIA_PATH'.
+ *
+ * Optional overrides: templateId, mediaPathEnvKey, sample (for templates with placeholders).
  */
 export const sendAppDownloadWhatsApp = async ({
     customerName,
@@ -68,6 +82,8 @@ export const sendAppDownloadWhatsApp = async ({
     mobile,
     campaignName,
     sample,
+    templateId,
+    mediaPathEnvKey,
 } = {}) => {
     const {
         WHATSAPP_API_TOKEN,
@@ -75,9 +91,10 @@ export const sendAppDownloadWhatsApp = async ({
         WHATSAPP_API_BASE_URL,
     } = process.env;
 
+    const resolvedTemplateId = templateId || WHATSAPP_TEMPLATE_ID;
     const requiredConfig = {
         WHATSAPP_API_TOKEN,
-        WHATSAPP_TEMPLATE_ID,
+        WHATSAPP_TEMPLATE_ID: resolvedTemplateId,
         WHATSAPP_API_BASE_URL,
     };
     const missingConfig = Object.entries(requiredConfig)
@@ -89,11 +106,11 @@ export const sendAppDownloadWhatsApp = async ({
     }
 
     const recipient = normalizeWhatsAppNumber(countryCode, mobile);
-    const media = resolveTemplateMedia();
+    const media = resolveTemplateMedia(mediaPathEnvKey);
 
     const form = new FormData();
     form.append('ApiToken', WHATSAPP_API_TOKEN.trim());
-    form.append('TemplateId', String(WHATSAPP_TEMPLATE_ID).trim());
+    form.append('TemplateId', String(resolvedTemplateId).trim());
     form.append('QuickNumber', recipient);
     form.append(
         'CampaignName',
@@ -104,7 +121,7 @@ export const sendAppDownloadWhatsApp = async ({
     });
     form.append('TemplateFileExtension', media.extension);
 
-    // Only send Sample when template has placeholders (current template 28 has none).
+    // Only send Sample when template has placeholders (current templates 29/30 have none).
     if (sample !== undefined && sample !== null && String(sample).trim() !== '') {
         form.append('Sample', String(sample).trim());
     }
@@ -133,6 +150,7 @@ export const sendAppDownloadWhatsApp = async ({
         recipient,
         campaignId,
         customerName : customerName || null,
+        templateId : String(resolvedTemplateId).trim(),
         errorCode  : data.ErrorCode ?? data.errorCode ?? null,
         description: errorDescription,
     };
@@ -141,6 +159,12 @@ export const sendAppDownloadWhatsApp = async ({
 /**
  * Send WhatsApp once per mobile within a single module table.
  * RSA offline and charger inquiry are independent — each table has its own whatsapp_sent flag.
+ *
+ * Used for both new and existing users (same once-per-mobile gate).
+ * Callers choose the template:
+ *   - New user: omit templateId → WHATSAPP_TEMPLATE_ID (app-download template)
+ *   - Existing user: pass templateId (WHATSAPP_EXISTING_USER_TEMPLATE_ID) + optional mediaPathEnvKey
+ * Marks whatsapp_sent = 1 on the record after a successful send.
  */
 export const sendAppDownloadWhatsAppOnceByMobile = async ({
     tableName,
@@ -151,6 +175,8 @@ export const sendAppDownloadWhatsAppOnceByMobile = async ({
     mobile,
     campaignName,
     sample,
+    templateId,
+    mediaPathEnvKey,
 } = {}) => {
     if (!tableName || !recordIdField || !recordId) {
         throw new Error('tableName, recordIdField and recordId are required');
@@ -180,6 +206,8 @@ export const sendAppDownloadWhatsAppOnceByMobile = async ({
         mobile,
         campaignName,
         sample,
+        templateId,
+        mediaPathEnvKey,
     });
 
     await updateRecord(tableName, {

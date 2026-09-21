@@ -18,12 +18,19 @@ const RSA_OFFLINE_STATUS_MAP = {
     'CONFIRMED' : 'CNF',
     'PU'        : 'PU',
     'COMPLETED' : 'PU',
+    'C'         : 'C',
+    'CANCELLED' : 'C',
+    'CANCELED'  : 'C',
 };
 
 // const RSA_OFFLINE_STATUS_LABEL = {
 //     CNF : 'confirmed',
 //     PU  : 'completed',
+//     C   : 'cancelled',
 // };
+
+const RSA_OFFLINE_STATUS_ALLOWED_MSG =
+    'Invalid booking status. Allowed values are Confirmed (CNF), Completed (PU), or Cancelled (C).';
 
 const RSA_OFFLINE_BOOKING_TABLE = 'rsa_offline_booking';
 const RSA_OFFLINE_HISTORY_TABLE = 'rsa_offline_order_history';
@@ -33,6 +40,70 @@ const RSA_OFFLINE_INVOICE_TABLE = 'rsa_offline_invoice';
 // same moment can never be handed the same number.
 const buildOfflineRequestId = (rowId) => `RA-${String(rowId).padStart(3, '0')}`;
 const buildOfflineInvoiceId = (rowId) => `RAINV-${String(rowId).padStart(2, '0')}`;
+
+/**
+ * Offline RSA WhatsApp on Completed (PU) bookings.
+ * Previously: only new riders received WhatsApp; existing riders were skipped.
+ * Now: both get a message via the same helpers, with different templates.
+ *
+ * New rider  → sendAppDownloadWhatsAppOnceByMobile (default WHATSAPP_TEMPLATE_ID, e.g. 29)
+ * Existing   → sendAppDownloadWhatsAppOnceByMobile + templateId WHATSAPP_EXISTING_USER_TEMPLATE_ID (e.g. 30)
+ *
+ * Still once per mobile (whatsapp_sent). Called from addOfflineRSABooking / editOfflineRSABooking.
+ */
+const sendOfflineBookingWhatsApp = async ({
+    isCompleted,
+    isNewRider,
+    request_id,
+    customer_name,
+    country_code,
+    mobile_no,
+    rider_id,
+    logPrefix,
+}) => {
+    let whatsapp_status = 'not_applicable';
+    let whatsapp_campaign_id = null;
+
+    if (!isCompleted) {
+        return { whatsapp_status, whatsapp_campaign_id };
+    }
+
+    const existingUserTemplateId = process.env.WHATSAPP_EXISTING_USER_TEMPLATE_ID;
+    if (!isNewRider && !existingUserTemplateId) {
+        console.error(`[${logPrefix}] Missing WHATSAPP_EXISTING_USER_TEMPLATE_ID for existing rider WhatsApp`);
+        return { whatsapp_status: 'missing_existing_user_template', whatsapp_campaign_id: null };
+    }
+
+    try {
+        const whatsappResult = await sendAppDownloadWhatsAppOnceByMobile({
+            tableName      : RSA_OFFLINE_BOOKING_TABLE,
+            recordIdField  : 'request_id',
+            recordId       : request_id,
+            customerName   : customer_name,
+            countryCode    : country_code || '+971',
+            mobile         : mobile_no,
+            campaignName   : `RSA_Offline_${request_id}`,
+            ...(isNewRider
+                ? {}
+                : {
+                    templateId     : existingUserTemplateId,
+                    mediaPathEnvKey: 'WHATSAPP_EXISTING_USER_TEMPLATE_MEDIA_PATH',
+                }),
+        });
+        whatsapp_status = whatsappResult.status;
+        whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
+    } catch (whatsappError) {
+        whatsapp_status = 'failed';
+        console.error(`[${logPrefix}] WhatsApp message failed:`, {
+            request_id,
+            rider_id,
+            isNewRider,
+            error: whatsappError.response?.data || whatsappError.message,
+        });
+    }
+
+    return { whatsapp_status, whatsapp_campaign_id };
+};
 
 const toYesNo = (value) => ([true, 1, '1', 'true', 'yes', 'Yes', 'YES'].includes(value) ? 'Yes' : 'No');
 
@@ -62,6 +133,7 @@ const parseOfflineDate = (value) => {
 };
 
 const resolveOfflineDates = (booking_date, booking_completed_date, isCompleted) => {
+    // booking_completed_date only applies to Completed (PU); Confirmed / Cancelled store null.
     const bookingDate = parseOfflineDate(booking_date);
     const completedDate = isCompleted ? parseOfflineDate(booking_completed_date) : null;
 
@@ -326,6 +398,7 @@ export const offlineRSABookingData = asyncHandler(async (req, resp) => {
                 b.order_status, b.address AS pickup_address, b.emirates, b.location_link,
                 b.vehicle_data, b.battery_level, b.jump_start_required,
                 b.price, b.booking_price, b.mode_of_payment, b.rsa_id, b.proof_of_transaction,
+                b.cancellation_remarks, b.cancelled_by,
                 (SELECT h.driver_name FROM ${RSA_OFFLINE_HISTORY_TABLE} AS h
                     WHERE h.order_id = b.request_id ORDER BY h.id DESC LIMIT 1) AS driver_name,
                 r.rsa_name,
@@ -388,7 +461,18 @@ export const offlineRSABookingData = asyncHandler(async (req, resp) => {
 });
 
 export const offlineRSABookingList = asyncHandler(async (req, resp) => {
-    const { start_date, end_date, search_text = '', status, page_no, rowSelected } = req.body;
+    const {
+        start_date,
+        end_date,
+        booking_start_date,
+        booking_end_date,
+        booking_completed_start_date,
+        booking_completed_end_date,
+        search_text = '',
+        status,
+        page_no,
+        rowSelected,
+    } = req.body;
 
     const whereFields    = [];
     const whereValues    = [];
@@ -414,6 +498,25 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
         whereOperators.push('>=', '<=');
     }
 
+    // booking_date / booking_completed_date are DATE columns — no UTC offset needed.
+    if (booking_start_date && booking_end_date) {
+        whereFields.push('booking_date', 'booking_date');
+        whereValues.push(
+            moment(booking_start_date, 'YYYY-MM-DD').format('YYYY-MM-DD'),
+            moment(booking_end_date, 'YYYY-MM-DD').format('YYYY-MM-DD')
+        );
+        whereOperators.push('>=', '<=');
+    }
+
+    if (booking_completed_start_date && booking_completed_end_date) {
+        whereFields.push('booking_completed_date', 'booking_completed_date');
+        whereValues.push(
+            moment(booking_completed_start_date, 'YYYY-MM-DD').format('YYYY-MM-DD'),
+            moment(booking_completed_end_date, 'YYYY-MM-DD').format('YYYY-MM-DD')
+        );
+        whereOperators.push('>=', '<=');
+    }
+
     const result = await getPaginatedData({
         tableName : RSA_OFFLINE_BOOKING_TABLE,
         columns   : `request_id, rider_id, customer_name AS name, mobile_no AS contact_no, country_code, address AS pickup_address, emirates, location_link,
@@ -425,6 +528,7 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
             price, order_status, payment_status, mode_of_payment, transaction_id, proof_of_transaction,
             DATE_FORMAT(booking_date, '%Y-%m-%d') AS booking_date,
             DATE_FORMAT(booking_completed_date, '%Y-%m-%d') AS booking_completed_date,
+            cancellation_remarks, cancelled_by,
             ${formatDateTimeInQuery(['created_at'])},
             (SELECT invoice_id FROM ${RSA_OFFLINE_INVOICE_TABLE} AS inv WHERE inv.request_id = ${RSA_OFFLINE_BOOKING_TABLE}.request_id LIMIT 1) AS invoice_id`,
         liveSearchFields : ['request_id', 'customer_name', 'mobile_no'],
@@ -489,7 +593,7 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         customer_name, mobile_no, email_id, emailId, country_code = '+971', location_link, address, emirates,
         price, vehicle_make, vehicle_model, battery_level, jump_start_required, payment_status, mode_of_payment,
         transaction_id, booking_status, driver_name = null, booking_completed_by = null, rsa_id = null,
-        booking_date = null, booking_completed_date = null,
+        booking_date = null, booking_completed_date = null, cancellation_remarks = null,
     } = mergeParam(req);
 
     const proofOfTransaction = req.files?.['proof_of_transaction']?.[0]?.filename || null;
@@ -514,9 +618,18 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
 
     const orderStatus = RSA_OFFLINE_STATUS_MAP[String(booking_status).trim().toUpperCase()];
     if (!orderStatus) {
-        return resp.json({ status: 0, code: 422, message: ['Invalid booking status. Allowed values are Confirmed (CNF) or Completed (PU).'] });
+        return resp.json({ status: 0, code: 422, message: [RSA_OFFLINE_STATUS_ALLOWED_MSG] });
     }
+    // Completed (PU): invoice + WhatsApp; completed date / completed-by / mode_of_payment apply.
+    // Confirmed (CNF) / Cancelled (C): booking_completed_date, booking_completed_by, mode_of_payment not required.
+    // Cancelled (C): cancellation_remarks required.
     const isCompleted = orderStatus === 'PU';
+    const isCancelled = orderStatus === 'C';
+    const cancellationRemarks = isCancelled ? String(cancellation_remarks || '').trim() : null;
+    if (isCancelled && !cancellationRemarks) {
+        return resp.json({ status: 0, code: 422, message: ['cancellation_remarks is required when booking status is Cancelled.'] });
+    }
+    const cancelledBy = isCancelled ? 'Admin' : null;
     const { error: dateError, bookingDate, completedDate } = resolveOfflineDates(
         booking_date, booking_completed_date, isCompleted
     );
@@ -527,11 +640,13 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
     const bookingPrice = Number(price);
     const jumpStart    = toYesNo(jump_start_required);
     const vehicleData  = buildVehicleData(vehicle_make, vehicle_model);
+    const modeOfPayment = isCancelled ? null : (mode_of_payment || null);
 
     let connection;
     try {
         connection = await startTransaction();
 
+        // rsa_id / booking_completed_by optional for Cancelled and Confirmed.
         const driverInfo = await resolveOfflineRsaDriver(rsa_id, driver_name, booking_completed_by, connection);
         if (driverInfo === null) {
             await rollbackTransaction(connection);
@@ -552,12 +667,12 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             'request_id', 'rider_id', 'customer_name', 'mobile_no', 'email_id', 'country_code', 'location_link', 'address',
             'emirates', 'price', 'jump_start_required', 'battery_level', 'vehicle_data', 'booking_price',
             'order_status', 'payment_status', 'mode_of_payment', 'rsa_id', 'transaction_id', 'proof_of_transaction',
-            'booking_date', 'booking_completed_date',
+            'booking_date', 'booking_completed_date', 'cancellation_remarks', 'cancelled_by',
         ], [
             temporaryRequestId, rider_id, customer_name, mobile_no, email, country_code || '+971', location_link || null, address,
             emirates || null, bookingPrice, jumpStart, battery_level ?? 0, vehicleData, bookingPrice,
-            orderStatus, payment_status || 'Pending', mode_of_payment || null, driverInfo.rsa_id, transaction_id || null, proofOfTransaction,
-            bookingDate, completedDate,
+            orderStatus, payment_status || 'Pending', modeOfPayment, driverInfo.rsa_id, transaction_id || null, proofOfTransaction,
+            bookingDate, completedDate, cancellationRemarks, cancelledBy,
         ], connection);
 
         if (insert.affectedRows === 0) {
@@ -590,39 +705,23 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         await insertRecord(RSA_OFFLINE_HISTORY_TABLE, [
             'order_id', 'rider_id', 'driver_name', 'rsa_id', 'order_status', 'remarks',
         ], [
-            request_id, rider_id, driverInfo.driver_name, driverInfo.rsa_id, orderStatus, null,
+            request_id, rider_id, driverInfo.driver_name, driverInfo.rsa_id, orderStatus, cancellationRemarks,
         ], connection);
 
         await commitTransaction(connection);
         connection = null;
 
-        // WhatsApp only for newly created riders when booking is Completed (PU).
-        let whatsapp_status = 'not_applicable';
-        let whatsapp_campaign_id = null;
-        if (isCompleted && isNewRider) {
-            try {
-                const whatsappResult = await sendAppDownloadWhatsAppOnceByMobile({
-                    tableName      : RSA_OFFLINE_BOOKING_TABLE,
-                    recordIdField  : 'request_id',
-                    recordId       : request_id,
-                    customerName   : customer_name,
-                    countryCode    : country_code || '+971',
-                    mobile         : mobile_no,
-                    campaignName   : `RSA_Offline_${request_id}`,
-                });
-                whatsapp_status = whatsappResult.status;
-                whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
-            } catch (whatsappError) {
-                whatsapp_status = 'failed';
-                console.error('[addOfflineRSABooking] WhatsApp message failed:', {
-                    request_id,
-                    rider_id,
-                    error: whatsappError.response?.data || whatsappError.message,
-                });
-            }
-        } else if (isCompleted && !isNewRider) {
-            whatsapp_status = 'skipped_existing_user';
-        }
+        // WhatsApp on Completed (PU): new rider → app-download template; existing → existing-user template.
+        const { whatsapp_status, whatsapp_campaign_id } = await sendOfflineBookingWhatsApp({
+            isCompleted,
+            isNewRider,
+            request_id,
+            customer_name,
+            country_code,
+            mobile_no,
+            rider_id,
+            logPrefix: 'addOfflineRSABooking',
+        });
 
         return resp.json({
             status               : 1,
@@ -637,6 +736,8 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             proof_of_transaction   : proofOfTransaction,
             booking_date           : bookingDate,
             booking_completed_date : completedDate,
+            cancellation_remarks   : cancellationRemarks,
+            cancelled_by           : cancelledBy,
             whatsapp_status,
             whatsapp_campaign_id,
         });
@@ -654,7 +755,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         request_id, customer_name, mobile_no, email_id, emailId, country_code = '+971', location_link, address, emirates,
         price, vehicle_make, vehicle_model, battery_level, jump_start_required, payment_status, mode_of_payment,
         transaction_id, booking_status, driver_name = null, booking_completed_by = null, rsa_id = null,
-        booking_date = null, booking_completed_date = null,
+        booking_date = null, booking_completed_date = null, cancellation_remarks = null,
     } = mergeParam(req);
 
     const proofOfTransaction = req.files?.['proof_of_transaction']?.[0]?.filename || null;
@@ -683,7 +784,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         return resp.json({
             status  : 0,
             code    : 422,
-            message : ['Invalid booking status. Allowed values are Confirmed (CNF) or Completed (PU).'],
+            message : [RSA_OFFLINE_STATUS_ALLOWED_MSG],
         });
     }
 
@@ -699,7 +800,16 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
     }
 
     const wasCompleted = existing.order_status === 'PU';
+    // Completed (PU): invoice + WhatsApp; completed date / completed-by / mode_of_payment apply.
+    // Confirmed (CNF) / Cancelled (C): booking_completed_date, booking_completed_by, mode_of_payment not required.
+    // Cancelled (C): cancellation_remarks required.
     const isCompleted  = orderStatus === 'PU';
+    const isCancelled  = orderStatus === 'C';
+    const cancellationRemarks = isCancelled ? String(cancellation_remarks || '').trim() : null;
+    if (isCancelled && !cancellationRemarks) {
+        return resp.json({ status: 0, code: 422, message: ['cancellation_remarks is required when booking status is Cancelled.'] });
+    }
+    const cancelledBy = isCancelled ? 'Admin' : null;
     const { error: dateError, bookingDate, completedDate } = resolveOfflineDates(
         booking_date, booking_completed_date, isCompleted
     );
@@ -711,11 +821,13 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
     const jumpStart    = toYesNo(jump_start_required);
     const vehicleData  = buildVehicleData(vehicle_make, vehicle_model);
     const savedProof   = proofOfTransaction || existing.proof_of_transaction || null;
+    const modeOfPayment = isCancelled ? null : (mode_of_payment || null);
 
     let connection;
     try {
         connection = await startTransaction();
 
+        // rsa_id / booking_completed_by optional for Cancelled and Confirmed.
         const driverInfo = await resolveOfflineRsaDriver(rsa_id, driver_name, booking_completed_by, connection);
         if (driverInfo === null) {
             await rollbackTransaction(connection);
@@ -747,12 +859,14 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             booking_price         : bookingPrice,
             order_status          : orderStatus,
             payment_status        : payment_status || 'Pending',
-            mode_of_payment       : mode_of_payment || null,
+            mode_of_payment       : modeOfPayment,
             rsa_id                 : driverInfo.rsa_id,
             transaction_id         : transaction_id || null,
             proof_of_transaction   : savedProof,
             booking_date           : bookingDate,
             booking_completed_date : completedDate,
+            cancellation_remarks   : cancellationRemarks,
+            cancelled_by           : cancelledBy,
         }, ['request_id'], [request_id], connection);
 
         if (update.affectedRows === 0) {
@@ -815,7 +929,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             await insertRecord(RSA_OFFLINE_HISTORY_TABLE, [
                 'order_id', 'rider_id', 'driver_name', 'rsa_id', 'order_status', 'remarks',
             ], [
-                request_id, rider_id, driverInfo.driver_name, driverInfo.rsa_id, orderStatus, null,
+                request_id, rider_id, driverInfo.driver_name, driverInfo.rsa_id, orderStatus, cancellationRemarks,
             ], connection);
         } else {
             const historyUpdate = { rider_id };
@@ -824,6 +938,9 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             }
             if ((driverInfo.rsa_id || null) !== (latestHistory.rsa_id || null)) {
                 historyUpdate.rsa_id = driverInfo.rsa_id;
+            }
+            if (isCancelled) {
+                historyUpdate.remarks = cancellationRemarks;
             }
             await updateRecord(
                 RSA_OFFLINE_HISTORY_TABLE,
@@ -837,33 +954,17 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         await commitTransaction(connection);
         connection = null;
 
-        // WhatsApp only for newly created riders when booking is Completed (PU).
-        let whatsapp_status = 'not_applicable';
-        let whatsapp_campaign_id = null;
-        if (isCompleted && isNewRider) {
-            try {
-                const whatsappResult = await sendAppDownloadWhatsAppOnceByMobile({
-                    tableName      : RSA_OFFLINE_BOOKING_TABLE,
-                    recordIdField  : 'request_id',
-                    recordId       : request_id,
-                    customerName   : customer_name,
-                    countryCode    : country_code || '+971',
-                    mobile         : mobile_no,
-                    campaignName   : `RSA_Offline_${request_id}`,
-                });
-                whatsapp_status = whatsappResult.status;
-                whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
-            } catch (whatsappError) {
-                whatsapp_status = 'failed';
-                console.error('[editOfflineRSABooking] WhatsApp message failed:', {
-                    request_id,
-                    rider_id,
-                    error: whatsappError.response?.data || whatsappError.message,
-                });
-            }
-        } else if (isCompleted && !isNewRider) {
-            whatsapp_status = 'skipped_existing_user';
-        }
+        // WhatsApp on Completed (PU): new rider → app-download template; existing → existing-user template.
+        const { whatsapp_status, whatsapp_campaign_id } = await sendOfflineBookingWhatsApp({
+            isCompleted,
+            isNewRider,
+            request_id,
+            customer_name,
+            country_code,
+            mobile_no,
+            rider_id,
+            logPrefix: 'editOfflineRSABooking',
+        });
 
         return resp.json({
             status               : 1,
@@ -879,6 +980,8 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             proof_of_transaction   : savedProof,
             booking_date           : bookingDate,
             booking_completed_date : completedDate,
+            cancellation_remarks   : cancellationRemarks,
+            cancelled_by           : cancelledBy,
             invoice_created        : isCompleted && !wasCompleted && !!invoice_id && !existingInvoice,
             whatsapp_status,
             whatsapp_campaign_id,

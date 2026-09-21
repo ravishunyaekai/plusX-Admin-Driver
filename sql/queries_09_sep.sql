@@ -1,5 +1,5 @@
 -- queries added after 03-09-2026 live update
--- Consolidated datewise: 08-09-2026, 09-09-2026, 14-09-2026, 16-09-2026
+-- Consolidated datewise: 08-09-2026, 09-09-2026, 14-09-2026, 16-09-2026, 17-09-2026, 18-09-2026, 21-09-2026
 -- Run sections in order. Skip ALTER steps if the column/table already exists.
 
 
@@ -145,5 +145,20 @@ WHERE added_from IN ('Admin Offline', 'Admin Offl');
 -- Skip if column already exists.
 ALTER TABLE charger_installation_inquiry
     ADD COLUMN emirates VARCHAR(100) NULL DEFAULT NULL AFTER email_id;
+
+-----------------------------------------------------------------------------------------------------
+
+
+-- =============================================================================
+-- 21-09-2026
+-- =============================================================================
+
+-- Offline RSA: cancellation remarks + cancelled_by when order_status = Cancelled (C)
+-- Skip if column already exists.
+ALTER TABLE rsa_offline_booking
+    ADD COLUMN cancellation_remarks TEXT NULL AFTER booking_completed_date;
+
+ALTER TABLE rsa_offline_booking
+    ADD COLUMN cancelled_by VARCHAR(50) NULL AFTER cancellation_remarks;
 
 -----------------------------------------------------------------------------------------------------

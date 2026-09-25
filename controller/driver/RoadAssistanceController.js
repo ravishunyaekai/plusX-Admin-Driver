@@ -304,7 +304,10 @@ const chargingStart = async (req, resp) => { //pod_id = '',
 };
 
 const chargingComplete = async (req, resp) => {
-    const { booking_id, rsa_id, latitude, longitude } = mergeParam(req);
+    const { booking_id, rsa_id, latitude, longitude, remark='' } = mergeParam(req);
+
+    if (!req.files || !req.files['image']) return resp.json({ message: ["Vehicle Image is required"], status: 0, code: 405, error: true });
+
     // (SELECT pod_id FROM road_assistance as rsa WHERE rsa.request_id = order_assign.order_id limit 1) AS pod_id
     const checkOrder = await queryDB(`
         SELECT rider_id, 
@@ -315,6 +318,8 @@ const chargingComplete = async (req, resp) => {
             order_id = ? AND rsa_id = ? AND status = 1
         LIMIT 1 `,[booking_id, rsa_id]
     );
+    const images = req.files['image'] ? req.files['image'].map(file => file.filename).join('*') : '';
+
     if (!checkOrder) {
         return resp.json({ message: [`Sorry no booking found with this booking id ${booking_id}`], status: 0, code: 404 });
     }
@@ -328,8 +333,8 @@ const chargingComplete = async (req, resp) => {
         const sumOfLevel     = 0; //podBatteryData.sum ? podBatteryData.sum : 0;
 
         const insert = await db.execute(
-            'INSERT INTO order_history (order_id, rider_id, order_status, rsa_id, latitude, longitude, pod_data) VALUES (?, ?, "CC", ?, ?, ?, ?)',
-            [booking_id, checkOrder.rider_id, rsa_id, latitude, longitude, podData]
+            'INSERT INTO order_history (order_id, rider_id, order_status, rsa_id, latitude, longitude, pod_data, image, remarks) VALUES (?, ?, "CC", ?, ?, ?, ?, ?, ?)',
+            [booking_id, checkOrder.rider_id, rsa_id, latitude, longitude, podData, images, remark]
         );
         if(insert.affectedRows == 0) return resp.json({ message: ['Oops! Something went wrong! Please Try Again'], status: 0, code: 200 });
 

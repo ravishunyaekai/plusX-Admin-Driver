@@ -351,7 +351,9 @@ const chargingStart = async (req, resp) => {
 };
 
 const chargingComplete = async (req, resp) => {
-    const { booking_id, rsa_id, latitude, longitude } = mergeParam(req);
+    const { booking_id, rsa_id, latitude, longitude, remark='' } = mergeParam(req);
+
+    if (!req.files || !req.files['image']) return resp.status(405).json({ message: ["Vehicle Image is required"], status: 0, code: 405, error: true });
 
     const checkOrder = await queryDB(`
         SELECT 
@@ -366,6 +368,7 @@ const chargingComplete = async (req, resp) => {
         LIMIT 1
     `,[booking_id, rsa_id]);
     
+    const images = req.files['image'] ? req.files['image'].map(file => file.filename).join('*') : '';
 
     if (!checkOrder) {
         return resp.json({ message: [`Sorry no booking found with this booking id ${booking_id}`], status: 0, code: 404 });
@@ -387,8 +390,8 @@ const chargingComplete = async (req, resp) => {
         const sumOfLevel     = podBatteryData.sum ? podBatteryData.sum : 0;
 
         const insert = await db.execute(
-            'INSERT INTO portable_charger_history (booking_id, rider_id, order_status, rsa_id, latitude, longitude, pod_data) VALUES (?, ?, "CC", ?, ?, ?, ?)',
-            [booking_id, checkOrder.rider_id, rsa_id, latitude, longitude, podData]
+            'INSERT INTO portable_charger_history (booking_id, rider_id, order_status, rsa_id, latitude, longitude, pod_data, image, remarks) VALUES (?, ?, "CC", ?, ?, ?, ?, ?, ?)',
+            [booking_id, checkOrder.rider_id, rsa_id, latitude, longitude, podData, images, remark]
         );
         if(insert.affectedRows == 0) return resp.json({ message: ['Oops! Something went wrong! Please Try Again'], status: 0, code: 200 });
 

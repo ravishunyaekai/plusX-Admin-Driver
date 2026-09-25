@@ -26,7 +26,9 @@ const corsOptions = {
         'http://localhost:3000',
         'http://localhost:3001',
         'http://localhost:8802',
-        'http://localhost:1117'
+        'http://localhost:1117',
+        'https://partners.shunyaekai.com',
+        'https://partners.plusxelectric.com'
     ],
     // origin : "*",
     methods: 'GET, POST, PUT, DELETE',
@@ -49,6 +51,24 @@ app.use('/admin', adminRoutes);
 app.use('/driver', driverRoutes);
 // Community manager APIs (login, dashboard, community details, residents — scoped by community_id)
 app.use('/community', communityRoutes);
+
+// ---------------------------------------------------------------------------
+// Community panel UI on partner subdomain (served at root "/")
+// Testing : https://partners.shunyaekai.com
+// Live    : https://partners.plusxelectric.com
+// Community React app must be built with base path "/"
+// Nginx must forward the original host: proxy_set_header Host $host;
+// ---------------------------------------------------------------------------
+const COMMUNITY_HOSTS = ['partners.shunyaekai.com', 'partners.plusxelectric.com'];
+const communityStatic = express.static(path.join(__dirname, 'community-build', 'build'));
+const communityIndex  = path.join(__dirname, 'community-build', 'build', 'index.html');
+
+app.use((req, res, next) => {
+    if (COMMUNITY_HOSTS.includes(req.hostname)) {
+        return communityStatic(req, res, () => res.sendFile(communityIndex));
+    }
+    next();
+});
 
 // ---------------------------------------------------------------------------
 // Community panel UI (separate React project build → upload to community-build/)

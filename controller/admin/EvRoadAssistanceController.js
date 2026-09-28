@@ -42,14 +42,9 @@ const buildOfflineRequestId = (rowId) => `RA-${String(rowId).padStart(3, '0')}`;
 const buildOfflineInvoiceId = (rowId) => `RAINV-${String(rowId).padStart(2, '0')}`;
 
 /**
- * Offline RSA WhatsApp on Completed (PU) bookings.
- * Previously: only new riders received WhatsApp; existing riders were skipped.
- * Now: both get a message via the same helpers, with different templates.
- *
- * New rider  → sendAppDownloadWhatsAppOnceByMobile (default WHATSAPP_TEMPLATE_ID, e.g. 29)
- * Existing   → sendAppDownloadWhatsAppOnceByMobile + templateId WHATSAPP_EXISTING_USER_TEMPLATE_ID (e.g. 30)
- *
- * Still once per mobile (whatsapp_sent). Called from addOfflineRSABooking / editOfflineRSABooking.
+ * Offline RSA WhatsApp on Completed (PU) bookings — newly created riders only; existing riders are skipped.
+ * Uses the default WHATSAPP_TEMPLATE_ID, once per mobile (whatsapp_sent).
+ * Called from addOfflineRSABooking / editOfflineRSABooking.
  */
 const sendOfflineBookingWhatsApp = async ({
     isCompleted,
@@ -64,14 +59,8 @@ const sendOfflineBookingWhatsApp = async ({
     let whatsapp_status = 'not_applicable';
     let whatsapp_campaign_id = null;
 
-    if (!isCompleted) {
+    if (!isCompleted || !isNewRider) {
         return { whatsapp_status, whatsapp_campaign_id };
-    }
-
-    const existingUserTemplateId = process.env.WHATSAPP_EXISTING_USER_TEMPLATE_ID;
-    if (!isNewRider && !existingUserTemplateId) {
-        console.error(`[${logPrefix}] Missing WHATSAPP_EXISTING_USER_TEMPLATE_ID for existing rider WhatsApp`);
-        return { whatsapp_status: 'missing_existing_user_template', whatsapp_campaign_id: null };
     }
 
     try {
@@ -83,12 +72,6 @@ const sendOfflineBookingWhatsApp = async ({
             countryCode    : country_code || '+971',
             mobile         : mobile_no,
             campaignName   : `RSA_Offline_${request_id}`,
-            ...(isNewRider
-                ? {}
-                : {
-                    templateId     : existingUserTemplateId,
-                    mediaPathEnvKey: 'WHATSAPP_EXISTING_USER_TEMPLATE_MEDIA_PATH',
-                }),
         });
         whatsapp_status = whatsappResult.status;
         whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
@@ -711,7 +694,7 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         await commitTransaction(connection);
         connection = null;
 
-        // WhatsApp on Completed (PU): new rider → app-download template; existing → existing-user template.
+        // WhatsApp only for newly created riders when booking is Completed (PU).
         const { whatsapp_status, whatsapp_campaign_id } = await sendOfflineBookingWhatsApp({
             isCompleted,
             isNewRider,
@@ -954,7 +937,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         await commitTransaction(connection);
         connection = null;
 
-        // WhatsApp on Completed (PU): new rider → app-download template; existing → existing-user template.
+        // WhatsApp only for newly created riders when booking is Completed (PU).
         const { whatsapp_status, whatsapp_campaign_id } = await sendOfflineBookingWhatsApp({
             isCompleted,
             isNewRider,

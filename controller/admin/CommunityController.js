@@ -166,8 +166,9 @@ export const addCommunity = asyncHandler(async (req, resp) => {
     try {
         const {
             community_name, area_name, total_residence, chargers, kwValues,
-            manager_name, manager_email, manager_contact, country_code = '+971', password
+            manager_name, manager_email, country_code = '+971', password
         } = req.body;
+        const manager_contact = String(req.body.manager_contact ?? '').trim() || null;
         
         // return resp.json({ status : 0, message : "Community added successfully.", body : req.body });
 
@@ -245,8 +246,9 @@ export const editCommunity = asyncHandler(async (req, resp) => {
     try {
         const {
             community_id, community_name, area_name, total_residence, chargers, kwValues,
-            manager_name, manager_email, manager_contact, country_code = '+971', password
+            manager_name, manager_email, country_code = '+971', password
         } = req.body;
+        const manager_contact = String(req.body.manager_contact ?? '').trim() || null;
         
         // return resp.json({ status : 0, message : "Community added successfully.", body : req.body });
 
@@ -281,6 +283,11 @@ export const editCommunity = asyncHandler(async (req, resp) => {
             return resp.json({ status: 0, code: 422, message: ["Manager email already exists"] });
         }
 
+        const existingManager = await queryDB(`SELECT id FROM community_managers WHERE community_id = ? LIMIT 1`, [ community_id ]);
+        if (!existingManager && !password) {
+            return resp.json({ status: 0, code: 422, message: ["Password is required to add a community manager"] });
+        }
+
         const updtObj = { community_name, area_name, total_residence }
         const update = await updateRecord('community_list', updtObj, ['community_id'], [ community_id ] );
         
@@ -296,11 +303,24 @@ export const editCommunity = asyncHandler(async (req, resp) => {
             );
         }
 
-        const managerUpdtObj = { manager_name, manager_email, manager_contact, country_code: country_code || '+971' };
-        if (password) {
-            managerUpdtObj.password = await bcrypt.hash(password, 10);
+        if (existingManager) {
+            const managerUpdtObj = { manager_name, manager_email, manager_contact, country_code: country_code || '+971' };
+            if (password) {
+                managerUpdtObj.password = await bcrypt.hash(password, 10);
+            }
+            await updateRecord('community_managers', managerUpdtObj, ['community_id'], [ community_id ]);
+        } else {
+            const hashedPswd    = await bcrypt.hash(password, 10);
+            const managerInsert = await insertRecord('community_managers',
+                [ 'manager_id', 'community_id', 'manager_name', 'manager_email', 'country_code', 'manager_contact', 'password', 'status' ],
+                [ 'manager_id', community_id, manager_name, manager_email, country_code || '+971', manager_contact, hashedPswd, 1 ]
+            );
+            if (managerInsert.affectedRows == 0) {
+                return resp.json({ status: 0, message: "Community updated but failed to add community manager. Please try again." });
+            }
+            const manager_id = 'CM-' + String(managerInsert.insertId).padStart(3, '0');
+            await updateRecord('community_managers', { manager_id }, ['id'], [managerInsert.insertId]);
         }
-        await updateRecord('community_managers', managerUpdtObj, ['community_id'], [ community_id ]);
 
         return resp.json({
             status: update.affectedRows > 0 ? 1 : 0, 

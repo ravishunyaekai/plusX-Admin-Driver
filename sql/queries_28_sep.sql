@@ -27,6 +27,16 @@ ALTER TABLE `plusx-node`.`community_managers`
 
 -----------------------------------------------------------------------------------------------------
 
+-- manager_contact is optional; NULL (not '') lets multiple managers skip it without hitting the unique key
+ALTER TABLE `plusx-node`.`community_managers`
+    MODIFY COLUMN manager_contact VARCHAR(20) NULL DEFAULT NULL;
+
+UPDATE `plusx-node`.`community_managers`
+SET manager_contact = NULL
+WHERE manager_contact = '';
+
+-----------------------------------------------------------------------------------------------------
+
 
 -- =============================================================================
 -- purchase_history

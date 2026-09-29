@@ -60,8 +60,8 @@ app.use('/community', communityRoutes);
 // Nginx must forward the original host: proxy_set_header Host $host;
 // ---------------------------------------------------------------------------
 const COMMUNITY_HOSTS = ['partners.shunyaekai.com', 'partners.plusxelectric.com'];
-const communityStatic = express.static(path.join(__dirname, 'community-build', 'build'));
-const communityIndex  = path.join(__dirname, 'community-build', 'build', 'index.html');
+const communityStatic = express.static(path.join(__dirname, 'partner-build', 'build'));
+const communityIndex  = path.join(__dirname, 'partner-build', 'build', 'index.html');
 
 app.use((req, res, next) => {
     if (COMMUNITY_HOSTS.includes(req.hostname)) {
@@ -71,17 +71,17 @@ app.use((req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// Community panel UI (separate React project build → upload to community-build/)
+// Community panel UI (separate React project build → upload to partner-build/)
 // Accessible at: https://plusx.shunyaekai.com/community-app
 // Community React app must be built with base path "/community-app"
 // ---------------------------------------------------------------------------
-// app.use('/community-app', express.static(path.join(__dirname, 'community-build')));
+// app.use('/community-app', express.static(path.join(__dirname, 'partner-build')));
 // app.get('/community-app/*', function (req, res) {
-//     res.sendFile(path.join(__dirname, 'community-build', 'index.html'));
+//     res.sendFile(path.join(__dirname, 'partner-build', 'index.html'));
 // });
-app.use('/community-app', express.static(path.join(__dirname, 'community-build', 'build')));
+app.use('/community-app', express.static(path.join(__dirname, 'partner-build', 'build')));
 app.get('/community-app/*', function (req, res) {
-    res.sendFile(path.join(__dirname, 'community-build', 'build', 'index.html'));
+    res.sendFile(path.join(__dirname, 'partner-build', 'build', 'index.html'));
 });
 
 // ---------------------------------------------------------------------------
@@ -100,4 +100,4 @@ app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
 
-// Live Update - 03-09-2026   - https://docs.google.com/document/d/1izxmqh8j1eJunbgTe2W-Y1MjPj-3ySd-RnZSqV1WVPE/edit?tab=t.0#heading=h.yhadm92d8hpp
+// Live Update - 9-09-2026   - https://docs.google.com/document/d/1HhbLamAv-1T8o3Eg1eSAiCt4X7khQAnCfkW9TxQgSZ0/edit?tab=t.0

@@ -215,11 +215,11 @@ export const addCommunity = asyncHandler(async (req, resp) => {
         const kw             = JSON.parse(kwValues);
         if( charger_points.length > 0 ) {
              
-            const values       = charger_points.map((charger_point, index) => [ community_id, charger_point, kw[index] ]);
-            const placeholders = values.map(() => '(?, ?, ?)').join(', ');
+            const values       = charger_points.map((charger_point, index) => [ community_id, charger_point, kw[index], kw[index] ]);
+            const placeholders = values.map(() => '(?, ?, ?, ?)').join(', ');
 
             await db.execute(
-                `INSERT INTO community_chargers (community_id, charger_id, kw) VALUES ${placeholders}`, values.flat()
+                `INSERT INTO community_chargers (community_id, charger_id, kw, charger_max_speed) VALUES ${placeholders}`, values.flat()
             );
         }
 
@@ -295,11 +295,11 @@ export const editCommunity = asyncHandler(async (req, resp) => {
         const kw             = JSON.parse(kwValues);
         if( charger_points.length > 0 ) {
             await db.execute('DELETE FROM community_chargers WHERE community_id = ?', [ community_id ]);
-            const values       = charger_points.map((charger_point, index) => [ community_id, charger_point, kw[index] ]);
-            const placeholders = values.map(() => '(?, ?, ?)').join(', ');
+            const values       = charger_points.map((charger_point, index) => [ community_id, charger_point, kw[index], kw[index] ]);
+            const placeholders = values.map(() => '(?, ?, ?, ?)').join(', ');
 
             await db.execute(
-                `INSERT INTO community_chargers (community_id, charger_id, kw) VALUES ${placeholders}`, values.flat()
+                `INSERT INTO community_chargers (community_id, charger_id, kw, charger_max_speed) VALUES ${placeholders}`, values.flat()
             );
         }
 

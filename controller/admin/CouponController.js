@@ -76,8 +76,8 @@ export const couponList = asyncHandler(async (req, resp) => {
         columns: `id, coupan_name, coupan_code, user_per_user, coupan_percentage, ${formatDateInQuery(['end_date'])}, end_date as end_date_raw, status, booking_for, CASE WHEN end_date < CURDATE() THEN 1 ELSE 0 END as is_expired, (select count(*) from coupon_usage as cu where cu.coupan_code = coupon.coupan_code) as usage_count`,
         liveSearchFields : ['id', 'coupan_name', 'coupan_code',],
         liveSearchTexts  : [search_text, search_text, search_text],
-        // Active/non-expired first (is_expired=0), then expired (is_expired=1); within that, active status then latest end_date
-        sortColumn       : 'is_expired ASC, status DESC, end_date DESC',
+        // Active/non-expired first (is_expired=0), then expired (is_expired=1); within that, active status, then last added, then latest end_date
+        sortColumn       : 'is_expired ASC, status DESC, created_at DESC, end_date DESC',
         sortOrder        : '',
         page_no,
         limit: 10,

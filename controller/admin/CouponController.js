@@ -73,11 +73,11 @@ export const couponList = asyncHandler(async (req, resp) => {
     // 3) usage_count   -> how many times this coupon code was used (from coupon_usage)
     const result = await getPaginatedData({
         tableName: 'coupon',
-        columns: `id, coupan_name, coupan_code, user_per_user, coupan_percentage, ${formatDateInQuery(['end_date'])}, end_date as end_date_raw, status, booking_for, CASE WHEN end_date < CURDATE() THEN 1 ELSE 0 END as is_expired, (select count(*) from coupon_usage as cu where cu.coupan_code = coupon.coupan_code) as usage_count`,
+        columns: `id, coupan_name, coupan_code, user_per_user, ROUND(coupan_percentage, 2) AS coupan_percentage, ${formatDateInQuery(['end_date'])}, ${formatDateTimeInQuery(['created_at'])}, end_date as end_date_raw, status, booking_for, CASE WHEN end_date < CURDATE() THEN 1 ELSE 0 END as is_expired, (select count(*) from coupon_usage as cu where cu.coupan_code = coupon.coupan_code) as usage_count`,
         liveSearchFields : ['id', 'coupan_name', 'coupan_code',],
         liveSearchTexts  : [search_text, search_text, search_text],
         // Active/non-expired first (is_expired=0), then expired (is_expired=1); within that, active status, then last added, then latest end_date
-        sortColumn       : 'is_expired ASC, status DESC, created_at DESC, end_date DESC',
+        sortColumn       : 'is_expired ASC, status DESC, coupon.created_at DESC, end_date DESC',
         sortOrder        : '',
         page_no,
         limit: 10,
@@ -109,7 +109,7 @@ export const couponDetail = asyncHandler(async (req, resp) => {
     const { coupon_id } = req.body;
     if (!coupon_id) return resp.json({ status: 0, code: 422, message: "Coupon Id is required" });
     
-    const coupon = await queryDB(`SELECT *, ${formatDateInQuery(['end_date'])}, ${formatDateTimeInQuery(['created_at', 'updated_at'])} FROM coupon WHERE id = ?`, [coupon_id]);
+    const coupon = await queryDB(`SELECT *, ROUND(coupan_percentage, 2) AS coupan_percentage, ${formatDateInQuery(['end_date'])}, ${formatDateTimeInQuery(['created_at', 'updated_at'])} FROM coupon WHERE id = ?`, [coupon_id]);
     
     return resp.status(200).json({status: 1, data: coupon, message: "Coupon Data fetch successfully!"});
 });

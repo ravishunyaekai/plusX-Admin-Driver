@@ -107,7 +107,7 @@ export const couponListOld = asyncHandler(async (req, resp) => {
 });
 
 export const couponList = asyncHandler(async (req, resp) => {
-    const { start_date, end_date, search_text = '', page_no } = req.body;
+    const { start_date, end_date, created_start_date, created_end_date, search_text = '', page_no } = req.body;
 
     const whereFields    = []
     const whereValues    = []
@@ -118,6 +118,15 @@ export const couponList = asyncHandler(async (req, resp) => {
         const end = moment(end_date, "YYYY-MM-DD").endOf('day').format("YYYY-MM-DD HH:mm:ss");
 
         whereFields.push('end_date', 'end_date');
+        whereValues.push(start, end);
+        whereOperators.push('>=', '<=');
+    }
+
+    if (created_start_date && created_end_date) {
+        const start = moment(`${created_start_date} 00:00:00`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
+        const end   = moment(created_end_date, "YYYY-MM-DD").format("YYYY-MM-DD") + " 19:59:59";
+
+        whereFields.push('coupon.created_at', 'coupon.created_at');
         whereValues.push(start, end);
         whereOperators.push('>=', '<=');
     }

@@ -39,8 +39,9 @@ import { podDeviceList, podDeviceDetails, addPodDevice, editPodDevice, deletePod
 import { chargeShareList, chargeShareDetail, outputAndConnector, editAcceptChargShare, rejectChargShare } from "../controller/admin/ChargeShareController.js";
 
 import { communityList, communityDetail, addCommunity, editCommunity, allCommunityList, addResidentMulti, editResidentMulti, residentListMulti, residentListMultiOld, residentDetailMulti, residentSearchMulti, communityAreaList, getInvoiceData, createScanChargeInvoice, scanChargeInvoiceList, scanChargeInvoiceDetail, sessionList, sessionDetail } from "../controller/admin/CommunityController.js";
-// import { addResidentMulti, editResidentMulti, residentListMulti, residentListMultiOld, residentDetailMulti, residentSearchMulti } from "../controller/admin/CommunityControllerNew.js";
-// import { uploadFile, uploadFileMiddleware } from "../controller/admin/UploadController.js";
+ 
+
+import { addVendor, vendorList, vendorDetail, editVendor, allVendorList, addCustomer, customerList } from "../controller/admin/VendorController.js";
 
 const router = Router();
 
@@ -136,13 +137,13 @@ const adminRoutes = [
     { method: 'post',  path: '/rsa-location-list', handler: driverLocationList },
 
     /* EV Road Assistance */
-    { method: 'post', path: '/ev-road-assistance-booking-list',    handler: evRoadAssistanceBooking },
-    { method: 'post', path: '/ev-road-assistance-booking-details', handler: bookingData },
-    { method: 'post', path: '/ev-road-assistance-add-offline-booking', handler: addOfflineRSABooking },
-    { method: 'post', path: '/ev-road-assistance-edit-offline-booking', handler: editOfflineRSABooking },
-    { method: 'post', path: '/ev-road-assistance-offline-booking-list', handler: offlineRSABookingList },
+    { method: 'post', path: '/ev-road-assistance-booking-list',            handler: evRoadAssistanceBooking },
+    { method: 'post', path: '/ev-road-assistance-booking-details',         handler: bookingData },
+    { method: 'post', path: '/ev-road-assistance-add-offline-booking',     handler: addOfflineRSABooking },
+    { method: 'post', path: '/ev-road-assistance-edit-offline-booking',    handler: editOfflineRSABooking },
+    { method: 'post', path: '/ev-road-assistance-offline-booking-list',    handler: offlineRSABookingList },
     { method: 'post', path: '/ev-road-assistance-offline-booking-details', handler: offlineRSABookingData },
-    { method: 'post',  path: '/ev-road-assistance-offline-vehicle-list', handler: offlineRSAVehicleList },
+    { method: 'post',  path: '/ev-road-assistance-offline-vehicle-list',   handler: offlineRSAVehicleList },
     { method: 'post', path: '/ev-road-assistance-cancel-booking',  handler: evRoadAssistanceCancelBooking },
     { method: 'post', path: '/ev-road-assistance-invoice-list',    handler: evRoadAssistanceInvoice },
     { method: 'post', path: '/ev-road-assistance-invoice-data',    handler: invoiceData },
@@ -217,7 +218,7 @@ const adminRoutes = [
     { method: 'post', path: '/ev-charger-list',        handler: eVChargerList },
     { method: 'post', path: '/ev-all-charger-list',    handler: allChargerBrand },
     { method: 'post', path: '/ev-charger-details',     handler: evChargerDetails },
-    { method: 'post', path: '/ev-charger-edit',         handler: eVChargerEdit },
+    { method: 'post', path: '/ev-charger-edit',        handler: eVChargerEdit },
 
     { method: 'post', path: '/ev-accessories-add',       handler: AccessoriesAdd },
     { method: 'post', path: '/ev-accessories-list',      handler: AccessoriesList },    
@@ -254,14 +255,14 @@ const adminRoutes = [
     // { method: 'post',  path: '/resident-edit',    handler: editResidentMulti },
     // { method: 'post',  path: '/resident-list',    handler: residentListMulti },
     // { method: 'post',  path: '/resident-details', handler: residentDetailMulti },
-    // { method: 'post',  path: '/resident-search',            handler : residentSearchMulti },
+    // { method: 'post',  path: '/resident-search',  handler : residentSearchMulti },
 
     // Resident Routes (multi-community — CommunityControllerNew)
-    { method: 'post',  path: '/resident-add',     handler: addResidentMulti },
-    { method: 'post',  path: '/resident-edit',    handler: editResidentMulti },
-    { method: 'post',  path: '/resident-list',    handler: residentListMulti },
+    { method: 'post',  path: '/resident-add',      handler: addResidentMulti },
+    { method: 'post',  path: '/resident-edit',     handler: editResidentMulti },
+    { method: 'post',  path: '/resident-list',     handler: residentListMulti },
     { method: 'post',  path: '/resident-list-old', handler: residentListMultiOld },
-    // { method: 'post',  path: '/resident-list-single-old', handler: residentListOld }, // handler commented out in CommunityController
+     
     { method: 'post',  path: '/resident-details', handler: residentDetailMulti },
     { method: 'post',  path: '/resident-search',  handler: residentSearchMulti },
 
@@ -272,7 +273,18 @@ const adminRoutes = [
 
     { method: 'post',  path: '/session-list',    handler : sessionList },
     { method: 'post',  path: '/session-detail',  handler : sessionDetail },
-]; 
+
+    // Vendor Routes
+    { method: 'post',  path: '/vendor-list',      handler: vendorList },
+    { method: 'post',  path: '/vendor-add',       handler: addVendor },
+    { method: 'post',  path: '/vendor-details',   handler: vendorDetail },
+    { method: 'post',  path: '/vendor-edit',      handler: editVendor },
+    { method: 'post',  path: '/all-vendor-list',  handler: allVendorList },
+    
+    { method: 'post',  path: '/vendor-customer-add',  handler: addCustomer },
+    { method: 'post',  path: '/vendor-customer-list', handler: customerList },
+    // 
+];
 // Define your upload rules in a config map
 const uploadRules = {
      

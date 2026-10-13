@@ -153,9 +153,11 @@ const resolveOfflineRsaDriver = async (rsa_id, driver_name, booking_completed_by
 };
 
 const RSA_OFFLINE_PROOF_FOLDER = 'rsa-offline-proof';
+const RIDER_EMAIL_CONFLICT_MSG = 'Email already exists';
 
 // Find rider by mobile, or create one so the customer can OTP-login without signup.
-// Returns { rider_id, isNewRider } so WhatsApp can target newly created users only.
+// Returns { rider_id, isNewRider } so WhatsApp can target newly created users only,
+// or { emailConflict: true } when the email belongs to a rider with a different mobile.
 const findOrCreateRiderByMobile = async ({
     mobile,
     country_code,
@@ -168,6 +170,19 @@ const findOrCreateRiderByMobile = async ({
         [mobile],
         connection
     );
+
+    const riderEmail = email || null;
+    if (riderEmail) {
+        const emailTaken = await queryDB(
+            `SELECT rider_id FROM riders WHERE rider_email = ? AND rider_id != ? LIMIT 1`,
+            [riderEmail, existing?.rider_id || ''],
+            connection
+        );
+        if (emailTaken?.rider_id) {
+            return { emailConflict: true };
+        }
+    }
+
     if (existing?.rider_id) {
         return { rider_id: existing.rider_id, isNewRider: false };
     }
@@ -175,18 +190,6 @@ const findOrCreateRiderByMobile = async ({
     const nameParts = String(customer_name || '').trim().split(/\s+/).filter(Boolean);
     const firstName = nameParts[0] || 'Customer';
     const lastName  = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
-
-    let riderEmail = email || null;
-    if (riderEmail) {
-        const emailTaken = await queryDB(
-            `SELECT rider_id FROM riders WHERE rider_email = ? LIMIT 1`,
-            [riderEmail],
-            connection
-        );
-        if (emailTaken?.rider_id) {
-            riderEmail = null;
-        }
-    }
 
     try {
         const insert = await insertRecord('riders', [
@@ -637,13 +640,19 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             return resp.json({ status: 0, code: 422, message: ['Invalid RSA driver selected.'] });
         }
 
-        const { rider_id, isNewRider } = await findOrCreateRiderByMobile({
+        const riderResult = await findOrCreateRiderByMobile({
             mobile        : mobile_no,
             country_code  : country_code || '+971',
             customer_name,
             email,
             emirates,
         }, connection);
+        if (riderResult.emailConflict) {
+            await rollbackTransaction(connection);
+            connection = null;
+            return resp.json({ status: 0, code: 422, message: [RIDER_EMAIL_CONFLICT_MSG] });
+        }
+        const { rider_id, isNewRider } = riderResult;
 
         const temporaryRequestId = `TMP-${generateUniqueId({ length: 12 })}`;
         const insert = await insertRecord(RSA_OFFLINE_BOOKING_TABLE, [
@@ -818,13 +827,19 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             return resp.json({ status: 0, code: 422, message: ['Invalid RSA driver selected.'] });
         }
 
-        const { rider_id, isNewRider } = await findOrCreateRiderByMobile({
+        const riderResult = await findOrCreateRiderByMobile({
             mobile        : mobile_no,
             country_code  : country_code || '+971',
             customer_name,
             email,
             emirates,
         }, connection);
+        if (riderResult.emailConflict) {
+            await rollbackTransaction(connection);
+            connection = null;
+            return resp.json({ status: 0, code: 422, message: [RIDER_EMAIL_CONFLICT_MSG] });
+        }
+        const { rider_id, isNewRider } = riderResult;
 
         const update = await updateRecord(RSA_OFFLINE_BOOKING_TABLE, {
             rider_id,

@@ -493,10 +493,10 @@ const reachedOffice = async (req, resp) => {
         FROM portable_charger_history 
         WHERE rsa_id = ? AND order_status = "RO" AND booking_id = ?`, [booking_id, rsa_id, rsa_id, booking_id]
     );
-    if (ordHistoryCount.check_stage === 0) {
-        return resp.json({ message : ['Please complete previous stage first!'], status: 0, code: 200 });
-
-    } else if (ordHistoryCount.count === 0) {
+    // if (ordHistoryCount.check_stage === 0) {
+    //     return resp.json({ message : ['Please complete previous stage first!'], status: 0, code: 200 });
+    // } else 
+    if (ordHistoryCount.count === 0) {
         const insert = await db.execute(
             'INSERT INTO portable_charger_history (booking_id, rider_id, order_status, rsa_id, latitude, longitude) VALUES (?, ?, "RO", ?, ?, ? )',
             [booking_id, checkOrder.rider_id, rsa_id, latitude, longitude]

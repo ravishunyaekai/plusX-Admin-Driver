@@ -42,11 +42,8 @@ export const bookingList = asyncHandler(async (req, resp) => {
             OR JSON_UNQUOTE(JSON_EXTRACT(scb.resident_data, '$.resident_id')) IN (
                 SELECT resident_id FROM community_resident WHERE community_id = ?
             )
-            OR scb.charger_id IN (
-                SELECT charger_id FROM community_chargers WHERE community_id = ?
-            )
         )`];
-        const queryParams = [community_id, community_id, community_id];
+        const queryParams = [community_id, community_id];
 
         if (resident_id) {
             whereParts.push(`JSON_UNQUOTE(JSON_EXTRACT(scb.resident_data, '$.resident_id')) = ?`);
@@ -152,14 +149,8 @@ export const bookingDetail = asyncHandler(async (req, resp) => {
                 [community_id, booking.resident_id]
             )
             : null;
-        const chargerMatch = booking.charger_id
-            ? await queryDB(
-                `SELECT charger_id FROM community_chargers WHERE community_id = ? AND charger_id = ? LIMIT 1`,
-                [community_id, booking.charger_id]
-            )
-            : null;
 
-        if (booking.booking_community_id !== community_id && !residentMatch && !chargerMatch) {
+        if (booking.booking_community_id !== community_id && !residentMatch) {
             return resp.json({ status: 0, code: 403, message: 'Unauthorized access to this booking.' });
         }
 

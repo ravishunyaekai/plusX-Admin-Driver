@@ -4,7 +4,7 @@ import { adminAuthorization } from "../middleware/admin/authorizeMiddleware.js";
 
 import { login, logout, forgotPassword, updatePassword } from "../controller/admin/AuthController.js";
 
-import { getDashboardData, riderList, riderDetails, deleteRider, notificationList, locationList, areaList, deletedRiderList, bookingAreaList, topRatedAreaList, riderBookingLists } from "../controller/admin/AdminController.js";
+import { getDashboardData, riderList, riderDetails, deleteRider, notificationList, locationList, areaList, deletedRiderList, bookingAreaList, topRatedAreaList, riderBookingLists, vehicleBrandList, bikeVehicleBrandList } from "../controller/admin/AdminController.js";
 
 import { chargerBookingList, chargerBookingDetails, assignBooking, invoiceList, invoiceDetails, slotList, addSlot, editSlot, deleteSlot, slotDetails, adminCancelPCBooking, customerChargerBookingList, failedChargerBookingList, failedchargerBookingDetails, AddChargingPackage, UpdateChargingPackage, ChargingPackageList, ChargingPackageDetails, deletePackage
 } from "../controller/admin/PortableChargerController.js";
@@ -24,7 +24,7 @@ import { rsaList, rsaData, rsaAdd, rsaUpdate, rsaDelete, rsaStatusChange, driver
 
 import {
     bookingData, bookingList as evRoadAssistanceBooking, invoiceList as evRoadAssistanceInvoice, invoiceData, evRoadAssistanceCancelBooking, rsaAssignBooking, failedRSABookingList, failedRSABookingDetails,
-    rsaSlotList, rsaSlotDetails, rsaSlotAdd, rsaSlotEdit, rsaDeleteSlot, addOfflineRSABooking, editOfflineRSABooking, offlineRSABookingList, offlineRSABookingData, offlineRSAVehicleList
+    rsaSlotList, rsaSlotDetails, rsaSlotAdd, rsaSlotEdit, rsaDeleteSlot, addOfflineRSABooking, editOfflineRSABooking, offlineRSABookingList, offlineRSABookingData
 } from '../controller/admin/EvRoadAssistanceController.js'
 
 import { couponDetail, couponList, couponAdd, couponEdit, couponDelete } from "../controller/admin/CouponController.js";
@@ -65,7 +65,9 @@ const adminRoutes = [
     { method: 'post', path: '/rider-list',          handler: riderList },
     { method: 'post', path: '/rider-details',       handler: riderDetails },
     { method: 'post', path: '/delete-rider',        handler: deleteRider },
-    { method: 'post', path: '/location-list',       handler: locationList },
+    { method: 'post', path: '/location-list',           handler: locationList },
+    { method: 'post', path: '/vehicle-brand-list',      handler: vehicleBrandList },
+    { method: 'post', path: '/vehicle-bike-brand-list', handler: bikeVehicleBrandList },
     { method: 'post',  path: '/location-area-list', handler: areaList },
     { method: 'post', path: '/deleted-rider-list',  handler: deletedRiderList },
     { method: 'post',  path: '/all-area-list',      handler: bookingAreaList },
@@ -142,7 +144,7 @@ const adminRoutes = [
     { method: 'post', path: '/ev-road-assistance-edit-offline-booking', handler: editOfflineRSABooking },
     { method: 'post', path: '/ev-road-assistance-offline-booking-list', handler: offlineRSABookingList },
     { method: 'post', path: '/ev-road-assistance-offline-booking-details', handler: offlineRSABookingData },
-    { method: 'post',  path: '/ev-road-assistance-offline-vehicle-list', handler: offlineRSAVehicleList },
+    { method: 'post',  path: '/ev-road-assistance-offline-vehicle-list', handler: vehicleBrandList },
     { method: 'post', path: '/ev-road-assistance-cancel-booking',  handler: evRoadAssistanceCancelBooking },
     { method: 'post', path: '/ev-road-assistance-invoice-list',    handler: evRoadAssistanceInvoice },
     { method: 'post', path: '/ev-road-assistance-invoice-data',    handler: invoiceData },

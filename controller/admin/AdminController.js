@@ -444,9 +444,73 @@ export const profileUpdate = asyncHandler(async (req, resp) => {
 });
 
 export const locationList = asyncHandler(async (req, resp) => {
-    const [list] = await db.execute(`SELECT location_id as value, location_name as label FROM locations where status = 1 ORDER BY location_name ASC`);
+    const [list] = await db.execute(`
+        SELECT location_id AS value, location_name AS label, plat_code AS code
+        FROM locations
+        WHERE status = 1
+        ORDER BY location_name ASC
+    `);
     return resp.json({status: 1, code: 200, message: '', data: list});
 });
+
+const buildVehicleBrandResponse = (vehicles) => {
+    const vehicleMap = new Map();
+    vehicles.forEach(({ make, model }) => {
+        if (!vehicleMap.has(make)) {
+            vehicleMap.set(make, {
+                value  : make,
+                label  : make,
+                models : [],
+            });
+        }
+        vehicleMap.get(make).models.push({
+            value : model,
+            label : model,
+        });
+    });
+    return Array.from(vehicleMap.values());
+};
+
+export const vehicleBrandList = asyncHandler(async (req, resp) => {
+    const [vehicles] = await db.execute(`
+        SELECT DISTINCT TRIM(make) AS make, TRIM(model) AS model
+        FROM vehicle_brand_list
+        WHERE status = ?
+          AND make IS NOT NULL
+          AND TRIM(make) != ''
+          AND model IS NOT NULL
+          AND TRIM(model) != ''
+        ORDER BY make ASC, model ASC
+    `, [1]);
+
+    return resp.json({
+        status  : 1,
+        code    : 200,
+        message : ['Vehicle make and model list fetched successfully!'],
+        data    : buildVehicleBrandResponse(vehicles),
+    });
+});
+
+export const bikeVehicleBrandList = asyncHandler(async (req, resp) => {
+    const [vehicles] = await db.execute(`
+        SELECT DISTINCT TRIM(make) AS make, TRIM(model) AS model
+        FROM vehicle_bike_brand_list
+        WHERE status = ?
+          AND make IS NOT NULL
+          AND TRIM(make) != ''
+          AND model IS NOT NULL
+          AND TRIM(model) != ''
+        ORDER BY make ASC, model ASC
+    `, [1]);
+
+    return resp.json({
+        status  : 1,
+        code    : 200,
+        message : ['Bike make and model list fetched successfully!'],
+        data    : buildVehicleBrandResponse(vehicles),
+    });
+});
+
 /* Dynamic Data */
 export const areaList = asyncHandler(async (req, resp) => {
     const { location_id } = mergeParam(req);

@@ -5,10 +5,185 @@ import { queryDB, getPaginatedData, updateRecord, insertRecord } from '../../dbU
 import db from "../../config/db.js";
 import moment from "moment";
 import bcrypt from "bcryptjs";
+import generateUniqueId from 'generate-unique-id';
+import { sendAppDownloadWhatsApp } from '../../whatsappService.js';
 
 import { tryCatchErrorHandler } from "../../middleware/errorHandler.js";
 
 const formatUsageToThreeDecimals = (value) => parseFloat(value || 0).toFixed(3);
+
+const COMMUNITY_ADDED_FROM = 'Community';
+const RIDER_EMAIL_CONFLICT_MSG = 'Email already exists';
+const VEHICLE_SPECIFICATION_OPTIONS = ['GCC', 'Non-GCC'];
+
+/**
+ * WhatsApp for newly created community riders only.
+ * Template: set WHATSAPP_COMMUNITY_TEMPLATE_ID in env when ready.
+ * Optional media: WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH (falls back to WHATSAPP_TEMPLATE_MEDIA_PATH).
+ * Never blocks resident add — failures are logged and returned as status.
+ */
+const sendCommunityResidentWhatsApp = async ({
+    isNewRider,
+    resident_id,
+    resident_name,
+    country_code,
+    mobile_number,
+    rider_id,
+}) => {
+    let whatsapp_status = 'not_applicable';
+    let whatsapp_campaign_id = null;
+
+    if (!isNewRider) {
+        return { whatsapp_status, whatsapp_campaign_id };
+    }
+
+    const templateId = process.env.WHATSAPP_COMMUNITY_TEMPLATE_ID;
+    if (!templateId) {
+        console.warn('[community-resident-add] WhatsApp skipped: WHATSAPP_COMMUNITY_TEMPLATE_ID not configured');
+        return { whatsapp_status: 'not_configured', whatsapp_campaign_id: null };
+    }
+
+    try {
+        const mediaPathEnvKey = process.env.WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH
+            ? 'WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH'
+            : 'WHATSAPP_TEMPLATE_MEDIA_PATH';
+
+        const whatsappResult = await sendAppDownloadWhatsApp({
+            customerName  : resident_name,
+            countryCode   : country_code || '+971',
+            mobile        : mobile_number,
+            campaignName  : `Community_Resident_${resident_id}`,
+            templateId,
+            mediaPathEnvKey,
+        });
+
+        whatsapp_status = 'accepted';
+        whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
+    } catch (whatsappError) {
+        whatsapp_status = 'failed';
+        console.error('[community-resident-add] WhatsApp message failed:', {
+            resident_id,
+            rider_id,
+            error: whatsappError.response?.data || whatsappError.message,
+        });
+    }
+
+    return { whatsapp_status, whatsapp_campaign_id };
+};
+
+/**
+ * Resolve plate emirates input (location_id / name / plat_code) to locations.plat_code.
+ */
+const resolveVehicleEmiratesCode = async (input) => {
+    if (!input) return null;
+    const value = String(input).trim();
+    if (!value) return null;
+
+    const location = await queryDB(
+        `SELECT plat_code FROM locations
+         WHERE location_id = ? OR location_name = ? OR plat_code = ?
+         LIMIT 1`,
+        [value, value, value]
+    );
+    return location?.plat_code || value;
+};
+
+/**
+ * Find rider by mobile, or create one for the community resident.
+ * Returns { rider_id } or { emailConflict: true }.
+ */
+const findOrCreateRiderForResident = async ({
+    mobile,
+    country_code,
+    resident_name,
+    email,
+    emirates,
+}) => {
+    const existing = await queryDB(
+        `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
+        [mobile]
+    );
+
+    const riderEmail = email || null;
+    if (riderEmail) {
+        const emailTaken = await queryDB(
+            `SELECT rider_id FROM riders WHERE rider_email = ? AND rider_id != ? LIMIT 1`,
+            [riderEmail, existing?.rider_id || '']
+        );
+        if (emailTaken?.rider_id) {
+            return { emailConflict: true };
+        }
+    }
+
+    if (existing?.rider_id) {
+        return { rider_id: existing.rider_id, isNewRider: false };
+    }
+
+    const nameParts = String(resident_name || '').trim().split(/\s+/).filter(Boolean);
+    const firstName = nameParts[0] || 'Resident';
+    const lastName  = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
+    try {
+        const insert = await insertRecord('riders', [
+            'rider_id', 'rider_name', 'last_name', 'rider_email', 'country_code',
+            'rider_mobile', 'emirates', 'status', 'added_from',
+        ], [
+            'ER', firstName, lastName, riderEmail, country_code || '+971',
+            mobile, emirates || null, 0, COMMUNITY_ADDED_FROM,
+        ]);
+
+        if (!insert?.insertId) {
+            throw new Error('Failed to create rider for community resident');
+        }
+
+        const riderId = 'ER' + String(insert.insertId).padStart(4, '0');
+        await updateRecord('riders', { rider_id: riderId }, ['id'], [insert.insertId]);
+        return { rider_id: riderId, isNewRider: true };
+    } catch (error) {
+        const raced = await queryDB(
+            `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
+            [mobile]
+        );
+        if (raced?.rider_id) {
+            return { rider_id: raced.rider_id, isNewRider: false };
+        }
+        throw error;
+    }
+};
+
+/**
+ * Add vehicle for rider; marks it as default vehicle.
+ */
+const addRiderVehicleForResident = async ({
+    rider_id,
+    vehicle_type,
+    vehicle_make,
+    vehicle_model,
+    vehicle_specification,
+    vehicle_emirates,
+    vehicle_code,
+    vehicle_number,
+}) => {
+    const emiratesCode = await resolveVehicleEmiratesCode(vehicle_emirates);
+
+    await updateRecord('riders_vehicles', { default_vehicle: 0 }, ['rider_id'], [rider_id]);
+
+    return insertRecord('riders_vehicles', [
+        'vehicle_id', 'rider_id', 'vehicle_type', 'vehicle_make', 'vehicle_model',
+        'vehicle_specification', 'emirates', 'vehicle_code', 'vehicle_number', 'default_vehicle',
+    ], [
+        'RDV' + generateUniqueId({ length: 13 }),
+        rider_id,
+        vehicle_type,
+        vehicle_make,
+        vehicle_model,
+        vehicle_specification,
+        emiratesCode,
+        vehicle_code,
+        vehicle_number,
+        1,
+    ]);
+};
 
 const parseCommunityIds = (input) => {
     if (Array.isArray(input)) {
@@ -682,7 +857,9 @@ export const addResidentMulti = asyncHandler(async (req, resp) => {
     try {
         const {
             resident_name, mobile_number, country_code = '+971', resident_email, community_ids,
-            address, monthly_session_allocation, alloted_time, kwh_allocated, per_kwh_charge, extra_charge
+            address, emirates, monthly_session_allocation, alloted_time, kwh_allocated, per_kwh_charge, extra_charge,
+            vehicle_type, vehicle_make, vehicle_model, vehicle_specification,
+            vehicle_emirates, vehicle_code, vehicle_number,
         } = req.body;
 
         const parsedCommunityIds = parseCommunityIds(community_ids);
@@ -691,15 +868,31 @@ export const addResidentMulti = asyncHandler(async (req, resp) => {
             resident_name              : ["required"],
             mobile_number              : ["required"],
             resident_email             : ["required"],
+            emirates                   : ["required"],
             address                    : ["required"],
             monthly_session_allocation : ["required"],
             alloted_time               : ["required"],
             kwh_allocated              : ["required"],
             per_kwh_charge             : ["required"],
             extra_charge               : ["required"],
+            vehicle_type               : ["required"],
+            vehicle_make               : ["required"],
+            vehicle_model              : ["required"],
+            vehicle_specification      : ["required"],
+            vehicle_emirates           : ["required"],
+            vehicle_code               : ["required"],
+            vehicle_number             : ["required"],
         });
 
         if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
+
+        if (!VEHICLE_SPECIFICATION_OPTIONS.includes(vehicle_specification)) {
+            return resp.json({
+                status  : 0,
+                code    : 422,
+                message : ['Vehicle specification must be GCC or Non-GCC.'],
+            });
+        }
 
         const communityCheck = await validateCommunityIds(parsedCommunityIds);
         if (!communityCheck.valid) {
@@ -722,15 +915,27 @@ export const addResidentMulti = asyncHandler(async (req, resp) => {
             return resp.json({ status: 0, code: 422, message: ["Email already exists"] });
         }
 
+        const riderResult = await findOrCreateRiderForResident({
+            mobile        : mobile_number,
+            country_code  : country_code || '+971',
+            resident_name,
+            email         : resident_email,
+            emirates,
+        });
+
+        if (riderResult.emailConflict) {
+            return resp.json({ status: 0, code: 422, message: [RIDER_EMAIL_CONFLICT_MSG] });
+        }
+
         const primaryCommunityId = communityCheck.communityIds[0];
 
         const insert = await insertRecord('community_resident',
             [
                 'resident_id', 'community_id', 'resident_name', 'country_code', 'resident_mobile', 'resident_email',
-                'address', 'monthly_session_allocation', 'alloted_time', 'kwh_allocated', 'per_kwh_charge', 'extra_charge', 'status',
+                'address', 'emirates', 'monthly_session_allocation', 'alloted_time', 'kwh_allocated', 'per_kwh_charge', 'extra_charge', 'status',
             ], [
                 'resident_id', primaryCommunityId, resident_name, country_code || '+971', mobile_number, resident_email,
-                address, monthly_session_allocation, alloted_time, kwh_allocated, per_kwh_charge, extra_charge, 1,
+                address, emirates, monthly_session_allocation, alloted_time, kwh_allocated, per_kwh_charge, extra_charge, 1,
             ]);
 
         if (insert.affectedRows == 0) {
@@ -741,12 +946,43 @@ export const addResidentMulti = asyncHandler(async (req, resp) => {
         await updateRecord('community_resident', { resident_id }, ['id'], [insert.insertId]);
         await syncResidentCommunities(resident_id, communityCheck.communityIds);
 
+        const vehicleInsert = await addRiderVehicleForResident({
+            rider_id              : riderResult.rider_id,
+            vehicle_type,
+            vehicle_make,
+            vehicle_model,
+            vehicle_specification,
+            vehicle_emirates,
+            vehicle_code,
+            vehicle_number,
+        });
+
+        if (!vehicleInsert?.insertId) {
+            return resp.json({ status: 0, message: "Resident added but failed to add vehicle. Please try again." });
+        }
+
+        const { whatsapp_status, whatsapp_campaign_id } = await sendCommunityResidentWhatsApp({
+            isNewRider    : riderResult.isNewRider,
+            resident_id,
+            resident_name,
+            country_code  : country_code || '+971',
+            mobile_number,
+            rider_id      : riderResult.rider_id,
+        });
+
         const communities = await getCommunitiesForResident(resident_id);
 
         return resp.json({
             status  : 1,
             message : "Resident added successfully.",
-            data    : { resident_id, communities },
+            data    : {
+                resident_id,
+                rider_id    : riderResult.rider_id,
+                vehicle_id  : vehicleInsert.data?.vehicle_id,
+                communities,
+                whatsapp_status,
+                whatsapp_campaign_id,
+            },
         });
 
     } catch (error) {
@@ -905,7 +1141,7 @@ export const residentDetailMulti = asyncHandler(async (req, resp) => {
 
     const resident = await queryDB(`
         SELECT
-            resident_id, resident_name, country_code, resident_mobile, resident_email, address,
+            resident_id, resident_name, country_code, resident_mobile, resident_email, address, emirates,
             monthly_session_allocation, alloted_time, kwh_allocated, per_kwh_charge, extra_charge,
             ${formatDateTimeInQuery(['rs.created_at'])}, rs.status, rs.community_id AS primary_community_id
         FROM community_resident AS rs
@@ -916,11 +1152,34 @@ export const residentDetailMulti = asyncHandler(async (req, resp) => {
 
     const communities = await getCommunitiesForResident(resident_id);
 
+    const rider = await queryDB(
+        `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
+        [resident.resident_mobile]
+    );
+
+    let residentVehicles = [];
+    if (rider?.rider_id) {
+        const [vehicles] = await db.execute(`
+            SELECT
+                vehicle_id, vehicle_type, vehicle_make, vehicle_model, vehicle_specification,
+                emirates, vehicle_code, vehicle_number, default_vehicle
+            FROM riders_vehicles
+            WHERE rider_id = ?
+            ORDER BY default_vehicle DESC, id DESC
+        `, [rider.rider_id]);
+        residentVehicles = vehicles;
+    }
+
     return resp.json({
         status  : 1,
         code    : 200,
         message : ["Resident Details fetched successfully!"],
-        data    : { ...resident, communities },
+        data    : {
+            ...resident,
+            communities,
+            rider_id          : rider?.rider_id || null,
+            residentVehicles,
+        },
     });
 });
 

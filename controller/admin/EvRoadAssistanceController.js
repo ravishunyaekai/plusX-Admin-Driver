@@ -239,6 +239,7 @@ const findOrCreateRiderByMobile = async ({
 
 // Lookup only — "booking not completed" never creates a rider.
 const findRiderIdByMobile = async (mobile, connection = null) => {
+    if (!mobile) return null;
     const rider = await queryDB(
         `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
         [mobile],
@@ -247,26 +248,66 @@ const findRiderIdByMobile = async (mobile, connection = null) => {
     return rider?.rider_id || null;
 };
 
+const findRiderIdByEmail = async (email, connection = null) => {
+    if (!email) return null;
+    const rider = await queryDB(
+        `SELECT rider_id FROM riders WHERE rider_email = ? LIMIT 1`,
+        [email],
+        connection
+    );
+    return rider?.rider_id || null;
+};
+
+// Prefer mobile match, then email — used when booking is not completed.
+const findExistingRiderForIncompleteBooking = async (mobile, email, connection = null) => {
+    const byMobile = await findRiderIdByMobile(mobile, connection);
+    if (byMobile) return byMobile;
+    return findRiderIdByEmail(email, connection);
+};
+
 // Attach earlier "booking not completed" bookings (saved without a rider) to a newly created rider.
-const linkUnassignedOfflineBookings = async (rider_id, mobile, connection) => {
-    await connection.execute(
-        `UPDATE ${RSA_OFFLINE_HISTORY_TABLE} AS h
-         JOIN ${RSA_OFFLINE_BOOKING_TABLE} AS b ON b.request_id = h.order_id
-         SET h.rider_id = ?
-         WHERE b.mobile_no = ? AND b.rider_id IS NULL AND h.rider_id IS NULL`,
-        [rider_id, mobile]
-    );
-    await connection.execute(
-        `UPDATE ${RSA_OFFLINE_INVOICE_TABLE} AS inv
-         JOIN ${RSA_OFFLINE_BOOKING_TABLE} AS b ON b.request_id = inv.request_id
-         SET inv.rider_id = ?
-         WHERE b.mobile_no = ? AND b.rider_id IS NULL AND inv.rider_id IS NULL`,
-        [rider_id, mobile]
-    );
-    await connection.execute(
-        `UPDATE ${RSA_OFFLINE_BOOKING_TABLE} SET rider_id = ? WHERE mobile_no = ? AND rider_id IS NULL`,
-        [rider_id, mobile]
-    );
+const linkUnassignedOfflineBookings = async (rider_id, mobile, email, connection) => {
+    if (mobile) {
+        await connection.execute(
+            `UPDATE ${RSA_OFFLINE_HISTORY_TABLE} AS h
+             JOIN ${RSA_OFFLINE_BOOKING_TABLE} AS b ON b.request_id = h.order_id
+             SET h.rider_id = ?
+             WHERE b.mobile_no = ? AND b.rider_id IS NULL AND h.rider_id IS NULL`,
+            [rider_id, mobile]
+        );
+        await connection.execute(
+            `UPDATE ${RSA_OFFLINE_INVOICE_TABLE} AS inv
+             JOIN ${RSA_OFFLINE_BOOKING_TABLE} AS b ON b.request_id = inv.request_id
+             SET inv.rider_id = ?
+             WHERE b.mobile_no = ? AND b.rider_id IS NULL AND inv.rider_id IS NULL`,
+            [rider_id, mobile]
+        );
+        await connection.execute(
+            `UPDATE ${RSA_OFFLINE_BOOKING_TABLE} SET rider_id = ? WHERE mobile_no = ? AND rider_id IS NULL`,
+            [rider_id, mobile]
+        );
+    }
+
+    if (email) {
+        await connection.execute(
+            `UPDATE ${RSA_OFFLINE_HISTORY_TABLE} AS h
+             JOIN ${RSA_OFFLINE_BOOKING_TABLE} AS b ON b.request_id = h.order_id
+             SET h.rider_id = ?
+             WHERE b.email_id = ? AND b.rider_id IS NULL AND h.rider_id IS NULL`,
+            [rider_id, email]
+        );
+        await connection.execute(
+            `UPDATE ${RSA_OFFLINE_INVOICE_TABLE} AS inv
+             JOIN ${RSA_OFFLINE_BOOKING_TABLE} AS b ON b.request_id = inv.request_id
+             SET inv.rider_id = ?
+             WHERE b.email_id = ? AND b.rider_id IS NULL AND inv.rider_id IS NULL`,
+            [rider_id, email]
+        );
+        await connection.execute(
+            `UPDATE ${RSA_OFFLINE_BOOKING_TABLE} SET rider_id = ? WHERE email_id = ? AND rider_id IS NULL`,
+            [rider_id, email]
+        );
+    }
 };
 
 const parsePriceDetails = (value) => {
@@ -586,42 +627,6 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
     });
 });
 
-export const offlineRSAVehicleList = asyncHandler(async (req, resp) => {
-    const [vehicles] = await db.execute(`
-        SELECT DISTINCT TRIM(make) AS make, TRIM(model) AS model
-        FROM vehicle_brand_list
-        WHERE status = ?
-          AND make IS NOT NULL
-          AND TRIM(make) != ''
-          AND model IS NOT NULL
-          AND TRIM(model) != ''
-        ORDER BY make ASC, model ASC
-    `, [1]);
-
-    const vehicleMap = new Map();
-    vehicles.forEach(({ make, model }) => {
-        if (!vehicleMap.has(make)) {
-            vehicleMap.set(make, {
-                value  : make,
-                label  : make,
-                models : [],
-            });
-        }
-
-        vehicleMap.get(make).models.push({
-            value : model,
-            label : model,
-        });
-    });
-
-    return resp.json({
-        status  : 1,
-        code    : 200,
-        message : ['Vehicle make and model list fetched successfully!'],
-        data    : Array.from(vehicleMap.values()),
-    });
-});
-
 export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
     const {
         customer_name, mobile_no, email_id, emailId, country_code = '+971', location_link, address, emirates,
@@ -638,24 +643,38 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
     const bookingCompleted = parseBookingCompletedFlag(is_booking_completed) || 'Yes';
     const isBookingNotCompleted = bookingCompleted === 'No';
 
-    const { isValid, errors } = validateFields({
-        ...mergeParam(req),
-        mobile_no: mobileNo,
-        email_id : email,
-    }, isBookingNotCompleted ? {
-        mobile_no     : ["required"],
-    } : {
-        customer_name : ["required"],
-        mobile_no     : ["required"],
-        email_id      : ["required"],
-        emirates      : ["required"],
-        location_link : ["required"],
-        address       : ["required"],
-        price         : ["required"],
-        booking_status: ["required"],
-    });
-    if (!isValid) {
-        return resp.json({ status: 0, code: 422, message: errors });
+    // Booking not completed: no field is mandatory, but at least mobile or email is needed to identify the customer later.
+    if (isBookingNotCompleted) {
+        if (!mobileNo && !email) {
+            return resp.json({ status: 0, code: 422, message: ['mobile_no or email_id is required.'] });
+        }
+        if (email) {
+            const { isValid: emailValid, errors: emailErrors } = validateFields(
+                { email_id: email },
+                { email_id: ['email'] }
+            );
+            if (!emailValid) {
+                return resp.json({ status: 0, code: 422, message: emailErrors });
+            }
+        }
+    } else {
+        const { isValid, errors } = validateFields({
+            ...mergeParam(req),
+            mobile_no: mobileNo,
+            email_id : email,
+        }, {
+            customer_name : ["required"],
+            mobile_no     : ["required"],
+            email_id      : ["required"],
+            emirates      : ["required"],
+            location_link : ["required"],
+            address       : ["required"],
+            price         : ["required"],
+            booking_status: ["required"],
+        });
+        if (!isValid) {
+            return resp.json({ status: 0, code: 422, message: errors });
+        }
     }
 
     const statusInput = toNullableText(booking_status) || (isBookingNotCompleted ? 'CNF' : '');
@@ -704,8 +723,8 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         let rider_id   = null;
         let isNewRider = false;
         if (isBookingNotCompleted) {
-            // No rider is created; link to the existing rider when this mobile is already registered.
-            rider_id = await findRiderIdByMobile(mobileNo, connection);
+            // No rider is created; link if a rider already exists for this mobile or email.
+            rider_id = await findExistingRiderForIncompleteBooking(mobileNo, email, connection);
         } else {
             const riderResult = await findOrCreateRiderByMobile({
                 mobile        : mobileNo,
@@ -722,7 +741,7 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             ({ rider_id, isNewRider } = riderResult);
 
             if (isNewRider) {
-                await linkUnassignedOfflineBookings(rider_id, mobileNo, connection);
+                await linkUnassignedOfflineBookings(rider_id, mobileNo, email, connection);
             }
         }
 
@@ -832,7 +851,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
     }
 
     const existing = await queryDB(
-        `SELECT request_id, rider_id, mobile_no, is_booking_completed, order_status, proof_of_transaction
+        `SELECT request_id, rider_id, mobile_no, email_id, is_booking_completed, order_status, proof_of_transaction
          FROM ${RSA_OFFLINE_BOOKING_TABLE}
          WHERE request_id = ?
          LIMIT 1`,
@@ -850,24 +869,38 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
     }
     const isBookingNotCompleted = bookingCompleted === 'No';
 
-    const { isValid, errors } = validateFields({
-        ...mergeParam(req),
-        mobile_no: mobileNo,
-        email_id : email,
-    }, isBookingNotCompleted ? {
-        mobile_no     : ["required"],
-    } : {
-        customer_name : ["required"],
-        mobile_no     : ["required"],
-        email_id      : ["required"],
-        emirates      : ["required"],
-        location_link : ["required"],
-        address       : ["required"],
-        price         : ["required"],
-        booking_status: ["required"],
-    });
-    if (!isValid) {
-        return resp.json({ status: 0, code: 422, message: errors });
+    // Booking not completed: no field is mandatory, but at least mobile or email is needed to identify the customer later.
+    if (isBookingNotCompleted) {
+        if (!mobileNo && !email) {
+            return resp.json({ status: 0, code: 422, message: ['mobile_no or email_id is required.'] });
+        }
+        if (email) {
+            const { isValid: emailValid, errors: emailErrors } = validateFields(
+                { email_id: email },
+                { email_id: ['email'] }
+            );
+            if (!emailValid) {
+                return resp.json({ status: 0, code: 422, message: emailErrors });
+            }
+        }
+    } else {
+        const { isValid, errors } = validateFields({
+            ...mergeParam(req),
+            mobile_no: mobileNo,
+            email_id : email,
+        }, {
+            customer_name : ["required"],
+            mobile_no     : ["required"],
+            email_id      : ["required"],
+            emirates      : ["required"],
+            location_link : ["required"],
+            address       : ["required"],
+            price         : ["required"],
+            booking_status: ["required"],
+        });
+        if (!isValid) {
+            return resp.json({ status: 0, code: 422, message: errors });
+        }
     }
 
     const statusInput = toNullableText(booking_status) || (isBookingNotCompleted ? 'CNF' : '');
@@ -923,11 +956,11 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         let rider_id   = null;
         let isNewRider = false;
         if (isBookingNotCompleted) {
-            // Keep the rider linked after app registration; look up again if empty or the mobile changed.
-            const sameMobile = existing.mobile_no === mobileNo;
-            rider_id = (sameMobile && existing.rider_id)
+            // Keep rider after app registration; look up again if empty or mobile/email changed.
+            const sameContact = existing.mobile_no === mobileNo && (existing.email_id || null) === email;
+            rider_id = (sameContact && existing.rider_id)
                 ? existing.rider_id
-                : await findRiderIdByMobile(mobileNo, connection);
+                : await findExistingRiderForIncompleteBooking(mobileNo, email, connection);
         } else {
             const riderResult = await findOrCreateRiderByMobile({
                 mobile        : mobileNo,
@@ -944,7 +977,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             ({ rider_id, isNewRider } = riderResult);
 
             if (isNewRider) {
-                await linkUnassignedOfflineBookings(rider_id, mobileNo, connection);
+                await linkUnassignedOfflineBookings(rider_id, mobileNo, email, connection);
             }
         }
 

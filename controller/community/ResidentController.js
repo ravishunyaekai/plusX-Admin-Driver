@@ -1,6 +1,7 @@
 import { mergeParam, formatDateTimeInQuery, asyncHandler } from "../../utils.js";
 import validateFields from "../../validation.js";
 import { queryDB, getPaginatedData } from '../../dbUtils.js';
+import db from "../../config/db.js";
 import { tryCatchErrorHandler } from "../../middleware/errorHandler.js";
 
 /**
@@ -72,7 +73,7 @@ export const residentDetail = asyncHandler(async (req, resp) => {
 
         const resident = await queryDB(`
             SELECT
-                resident_id, resident_name, resident_mobile, resident_email, address,
+                resident_id, resident_name, resident_mobile, resident_email, address, emirates,
                 monthly_session_allocation, alloted_time, kwh_allocated, per_kwh_charge, extra_charge,
                 ${formatDateTimeInQuery(['rs.created_at'])}, rs.status,
                 community_name, area_name, rs.community_id
@@ -85,11 +86,33 @@ export const residentDetail = asyncHandler(async (req, resp) => {
             return resp.json({ status: 0, code: 404, message: "Resident not found." });
         }
 
+        const rider = await queryDB(
+            `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
+            [resident.resident_mobile]
+        );
+
+        let residentVehicles = [];
+        if (rider?.rider_id) {
+            const [vehicles] = await db.execute(`
+                SELECT
+                    vehicle_id, vehicle_type, vehicle_make, vehicle_model, vehicle_specification,
+                    emirates, vehicle_code, vehicle_number, default_vehicle
+                FROM riders_vehicles
+                WHERE rider_id = ?
+                ORDER BY default_vehicle DESC, id DESC
+            `, [rider.rider_id]);
+            residentVehicles = vehicles;
+        }
+
         return resp.json({
             status  : 1,
             code    : 200,
             message : ["Resident details fetched successfully!"],
-            data    : resident,
+            data    : {
+                ...resident,
+                rider_id : rider?.rider_id || null,
+                residentVehicles,
+            },
         });
     } catch (error) {
         console.log('Error fetching resident details:', error);

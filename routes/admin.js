@@ -24,7 +24,7 @@ import { rsaList, rsaData, rsaAdd, rsaUpdate, rsaDelete, rsaStatusChange, driver
 
 import {
     bookingData, bookingList as evRoadAssistanceBooking, invoiceList as evRoadAssistanceInvoice, invoiceData, evRoadAssistanceCancelBooking, rsaAssignBooking, failedRSABookingList, failedRSABookingDetails,
-    rsaSlotList, rsaSlotDetails, rsaSlotAdd, rsaSlotEdit, rsaDeleteSlot, addOfflineRSABooking, editOfflineRSABooking, offlineRSABookingList, offlineRSABookingData
+    rsaSlotList, rsaSlotDetails, rsaSlotAdd, rsaSlotEdit, rsaDeleteSlot, addOfflineRSABooking, editOfflineRSABooking, offlineRSABookingList, offlineRSABookingData, offlineRSARiderLookup
 } from '../controller/admin/EvRoadAssistanceController.js'
 
 import { couponDetail, couponList, couponAdd, couponEdit, couponDelete } from "../controller/admin/CouponController.js";
@@ -144,6 +144,7 @@ const adminRoutes = [
     { method: 'post', path: '/ev-road-assistance-edit-offline-booking', handler: editOfflineRSABooking },
     { method: 'post', path: '/ev-road-assistance-offline-booking-list', handler: offlineRSABookingList },
     { method: 'post', path: '/ev-road-assistance-offline-booking-details', handler: offlineRSABookingData },
+    { method: 'post', path: '/ev-road-assistance-offline-rider-lookup', handler: offlineRSARiderLookup },
     { method: 'post',  path: '/ev-road-assistance-offline-vehicle-list', handler: vehicleBrandList },
     { method: 'post', path: '/ev-road-assistance-cancel-booking',  handler: evRoadAssistanceCancelBooking },
     { method: 'post', path: '/ev-road-assistance-invoice-list',    handler: evRoadAssistanceInvoice },

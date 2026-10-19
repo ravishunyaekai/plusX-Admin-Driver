@@ -237,32 +237,62 @@ const findOrCreateRiderByMobile = async ({
     }
 };
 
-// Lookup only — "booking not completed" never creates a rider.
-const findRiderIdByMobile = async (mobile, connection = null) => {
-    if (!mobile) return null;
-    const rider = await queryDB(
-        `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
-        [mobile],
-        connection
-    );
-    return rider?.rider_id || null;
+const RIDER_LOOKUP_COLUMNS =
+    'rider_id, rider_name, last_name, rider_email, country_code, rider_mobile, emirates';
+
+// Lookup only — "booking not completed" never creates a rider. Prefer mobile, then email.
+const findRiderDetailsByMobileOrEmail = async (mobile, email, connection = null) => {
+    if (mobile) {
+        const byMobile = await queryDB(
+            `SELECT ${RIDER_LOOKUP_COLUMNS} FROM riders WHERE rider_mobile = ? LIMIT 1`,
+            [mobile],
+            connection
+        );
+        if (byMobile) return byMobile;
+    }
+    if (email) {
+        return queryDB(
+            `SELECT ${RIDER_LOOKUP_COLUMNS} FROM riders WHERE rider_email = ? LIMIT 1`,
+            [email],
+            connection
+        );
+    }
+    return null;
 };
 
-const findRiderIdByEmail = async (email, connection = null) => {
-    if (!email) return null;
-    const rider = await queryDB(
-        `SELECT rider_id FROM riders WHERE rider_email = ? LIMIT 1`,
-        [email],
-        connection
-    );
-    return rider?.rider_id || null;
+const buildRiderCustomerName = (rider) => {
+    if (!rider) return null;
+    const name = [rider.rider_name, rider.last_name].filter(Boolean).join(' ').trim();
+    return name || null;
 };
 
-// Prefer mobile match, then email — used when booking is not completed.
-const findExistingRiderForIncompleteBooking = async (mobile, email, connection = null) => {
-    const byMobile = await findRiderIdByMobile(mobile, connection);
-    if (byMobile) return byMobile;
-    return findRiderIdByEmail(email, connection);
+// Prefer existing request values; fill empty name / emirates (and missing contact) from riders.
+const applyRiderDefaultsForIncompleteBooking = ({
+    customer_name,
+    emirates,
+    mobile_no,
+    email_id,
+    country_code,
+}, rider) => {
+    if (!rider) {
+        return {
+            rider_id      : null,
+            customer_name : toNullableText(customer_name),
+            emirates      : toNullableText(emirates),
+            mobile_no     : mobile_no || null,
+            email_id      : email_id || null,
+            country_code  : country_code || '+971',
+        };
+    }
+
+    return {
+        rider_id      : rider.rider_id,
+        customer_name : toNullableText(customer_name) || buildRiderCustomerName(rider),
+        emirates      : toNullableText(emirates) || rider.emirates || null,
+        mobile_no     : mobile_no || rider.rider_mobile || null,
+        email_id      : email_id || rider.rider_email || null,
+        country_code  : country_code || rider.country_code || '+971',
+    };
 };
 
 // Attach earlier "booking not completed" bookings (saved without a rider) to a newly created rider.
@@ -627,6 +657,55 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
     });
 });
 
+/**
+ * Lookup existing rider by mobile and/or email for offline RSA Add form autofill.
+ * Prefer mobile match, then email. Returns name + emirates (and contact fields).
+ */
+export const offlineRSARiderLookup = asyncHandler(async (req, resp) => {
+    const { mobile_no, email_id, emailId, country_code } = mergeParam(req);
+    const mobileNo = toNullableText(mobile_no);
+    const email    = toNullableText(email_id || emailId);
+
+    if (!mobileNo && !email) {
+        return resp.json({ status: 0, code: 422, message: ['mobile_no or email_id is required.'] });
+    }
+    if (email) {
+        const { isValid: emailValid, errors: emailErrors } = validateFields(
+            { email_id: email },
+            { email_id: ['email'] }
+        );
+        if (!emailValid) {
+            return resp.json({ status: 0, code: 422, message: emailErrors });
+        }
+    }
+
+    const rider = await findRiderDetailsByMobileOrEmail(mobileNo, email);
+    if (!rider) {
+        return resp.json({
+            status  : 1,
+            code    : 200,
+            message : ['Rider not found.'],
+            found   : 0,
+            data    : null,
+        });
+    }
+
+    return resp.json({
+        status  : 1,
+        code    : 200,
+        message : ['Rider found.'],
+        found   : 1,
+        data    : {
+            rider_id     : rider.rider_id,
+            customer_name: buildRiderCustomerName(rider),
+            emirates     : rider.emirates || null,
+            mobile_no    : rider.rider_mobile || null,
+            email_id     : rider.rider_email || null,
+            country_code : rider.country_code || country_code || '+971',
+        },
+    });
+});
+
 export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
     const {
         customer_name, mobile_no, email_id, emailId, country_code = '+971', location_link, address, emirates,
@@ -722,9 +801,28 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
 
         let rider_id   = null;
         let isNewRider = false;
+        let savedCustomerName = toNullableText(customer_name);
+        let savedEmirates     = toNullableText(emirates);
+        let savedMobileNo     = mobileNo;
+        let savedEmail        = email;
+        let savedCountryCode  = country_code || '+971';
+
         if (isBookingNotCompleted) {
-            // No rider is created; link if a rider already exists for this mobile or email.
-            rider_id = await findExistingRiderForIncompleteBooking(mobileNo, email, connection);
+            // No rider is created; link if one exists. Fill empty name/emirates from riders.
+            const existingRider = await findRiderDetailsByMobileOrEmail(mobileNo, email, connection);
+            const filled = applyRiderDefaultsForIncompleteBooking({
+                customer_name : savedCustomerName,
+                emirates      : savedEmirates,
+                mobile_no     : savedMobileNo,
+                email_id      : savedEmail,
+                country_code  : savedCountryCode,
+            }, existingRider);
+            rider_id          = filled.rider_id;
+            savedCustomerName = filled.customer_name;
+            savedEmirates     = filled.emirates;
+            savedMobileNo     = filled.mobile_no;
+            savedEmail        = filled.email_id;
+            savedCountryCode  = filled.country_code;
         } else {
             const riderResult = await findOrCreateRiderByMobile({
                 mobile        : mobileNo,
@@ -752,8 +850,8 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             'order_status', 'payment_status', 'mode_of_payment', 'rsa_id', 'transaction_id', 'proof_of_transaction',
             'booking_date', 'booking_completed_date', 'cancellation_remarks', 'cancelled_by',
         ], [
-            temporaryRequestId, rider_id, bookingCompleted, toNullableText(customer_name), mobileNo, email, country_code || '+971', location_link || null, toNullableText(address),
-            emirates || null, bookingPrice, jumpStart, batteryLevel, vehicleData, bookingPrice,
+            temporaryRequestId, rider_id, bookingCompleted, savedCustomerName, savedMobileNo, savedEmail, savedCountryCode, location_link || null, toNullableText(address),
+            savedEmirates, bookingPrice, jumpStart, batteryLevel, vehicleData, bookingPrice,
             orderStatus, payment_status || 'Pending', modeOfPayment, driverInfo.rsa_id, transaction_id || null, proofOfTransaction,
             bookingDate, completedDate, cancellationRemarks, cancelledBy,
         ], connection);
@@ -955,12 +1053,40 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
 
         let rider_id   = null;
         let isNewRider = false;
+        let savedCustomerName = toNullableText(customer_name);
+        let savedEmirates     = toNullableText(emirates);
+        let savedMobileNo     = mobileNo;
+        let savedEmail        = email;
+        let savedCountryCode  = country_code || '+971';
+
         if (isBookingNotCompleted) {
             // Keep rider after app registration; look up again if empty or mobile/email changed.
+            // Fill empty name/emirates from riders when contact matches an existing rider.
             const sameContact = existing.mobile_no === mobileNo && (existing.email_id || null) === email;
-            rider_id = (sameContact && existing.rider_id)
-                ? existing.rider_id
-                : await findExistingRiderForIncompleteBooking(mobileNo, email, connection);
+            let existingRider = null;
+            if (sameContact && existing.rider_id) {
+                existingRider = await queryDB(
+                    `SELECT ${RIDER_LOOKUP_COLUMNS} FROM riders WHERE rider_id = ? LIMIT 1`,
+                    [existing.rider_id],
+                    connection
+                );
+            }
+            if (!existingRider) {
+                existingRider = await findRiderDetailsByMobileOrEmail(mobileNo, email, connection);
+            }
+            const filled = applyRiderDefaultsForIncompleteBooking({
+                customer_name : savedCustomerName,
+                emirates      : savedEmirates,
+                mobile_no     : savedMobileNo,
+                email_id      : savedEmail,
+                country_code  : savedCountryCode,
+            }, existingRider);
+            rider_id          = filled.rider_id || (sameContact ? existing.rider_id : null);
+            savedCustomerName = filled.customer_name;
+            savedEmirates     = filled.emirates;
+            savedMobileNo     = filled.mobile_no;
+            savedEmail        = filled.email_id;
+            savedCountryCode  = filled.country_code;
         } else {
             const riderResult = await findOrCreateRiderByMobile({
                 mobile        : mobileNo,
@@ -984,13 +1110,13 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         const update = await updateRecord(RSA_OFFLINE_BOOKING_TABLE, {
             rider_id,
             is_booking_completed  : bookingCompleted,
-            customer_name         : toNullableText(customer_name),
-            mobile_no             : mobileNo,
-            email_id              : email,
-            country_code          : country_code || '+971',
+            customer_name         : savedCustomerName,
+            mobile_no             : savedMobileNo,
+            email_id              : savedEmail,
+            country_code          : savedCountryCode,
             location_link         : location_link || null,
             address               : toNullableText(address),
-            emirates              : emirates || null,
+            emirates              : savedEmirates,
             price                 : bookingPrice,
             jump_start_required   : jumpStart,
             battery_level         : batteryLevel,

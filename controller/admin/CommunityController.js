@@ -18,8 +18,8 @@ const VEHICLE_SPECIFICATION_OPTIONS = ['GCC', 'Non-GCC'];
 
 /**
  * WhatsApp for newly created community riders only.
- * Template: set WHATSAPP_COMMUNITY_TEMPLATE_ID in env when ready.
- * Optional media: WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH (falls back to WHATSAPP_TEMPLATE_MEDIA_PATH).
+ * Requires WHATSAPP_COMMUNITY_TEMPLATE_ID and WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH.
+ * The resident image is separate from WHATSAPP_TEMPLATE_MEDIA_PATH.
  * Never blocks resident add — failures are logged and returned as status.
  */
 const sendCommunityResidentWhatsApp = async ({
@@ -38,23 +38,20 @@ const sendCommunityResidentWhatsApp = async ({
     }
 
     const templateId = process.env.WHATSAPP_COMMUNITY_TEMPLATE_ID;
-    if (!templateId) {
-        console.warn('[community-resident-add] WhatsApp skipped: WHATSAPP_COMMUNITY_TEMPLATE_ID not configured');
+    const mediaPath = process.env.WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH;
+    if (!templateId || !mediaPath) {
+        console.warn('[community-resident-add] WhatsApp skipped: WHATSAPP_COMMUNITY_TEMPLATE_ID or WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH not configured');
         return { whatsapp_status: 'not_configured', whatsapp_campaign_id: null };
     }
 
     try {
-        const mediaPathEnvKey = process.env.WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH
-            ? 'WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH'
-            : 'WHATSAPP_TEMPLATE_MEDIA_PATH';
-
         const whatsappResult = await sendAppDownloadWhatsApp({
-            customerName  : resident_name,
-            countryCode   : country_code || '+971',
-            mobile        : mobile_number,
-            campaignName  : `Community_Resident_${resident_id}`,
+            customerName    : resident_name,
+            countryCode     : country_code || '+971',
+            mobile          : mobile_number,
+            campaignName    : `Community_Resident_${resident_id}`,
             templateId,
-            mediaPathEnvKey,
+            mediaPathEnvKey : 'WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH',
         });
 
         whatsapp_status = 'accepted';

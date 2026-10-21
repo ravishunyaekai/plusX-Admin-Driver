@@ -39,14 +39,17 @@ const resolveExtension = (filePath, fallback = 'jpg') => {
 /**
  * Resolve template media file from env.
  * Default: WHATSAPP_TEMPLATE_MEDIA_PATH (./uploads/whatsapp/...).
- * Existing-user override key: WHATSAPP_EXISTING_USER_TEMPLATE_MEDIA_PATH
- * (falls back to WHATSAPP_TEMPLATE_MEDIA_PATH when not set).
+ * A dedicated key (community resident, existing user) is used as-is and does not
+ * fall back to WHATSAPP_TEMPLATE_MEDIA_PATH.
  */
 const resolveTemplateMedia = (mediaPathEnvKey = 'WHATSAPP_TEMPLATE_MEDIA_PATH') => {
-    const mediaPath = process.env[mediaPathEnvKey] || process.env.WHATSAPP_TEMPLATE_MEDIA_PATH;
+    const dedicatedKey = mediaPathEnvKey && mediaPathEnvKey !== 'WHATSAPP_TEMPLATE_MEDIA_PATH';
+    const mediaPath = dedicatedKey
+        ? process.env[mediaPathEnvKey]
+        : process.env.WHATSAPP_TEMPLATE_MEDIA_PATH;
 
     if (!mediaPath) {
-        throw new Error(`Missing WhatsApp configuration: ${mediaPathEnvKey}`);
+        throw new Error(`Missing WhatsApp configuration: ${dedicatedKey ? mediaPathEnvKey : 'WHATSAPP_TEMPLATE_MEDIA_PATH'}`);
     }
 
     const configuredPath = path.isAbsolute(mediaPath)
@@ -72,7 +75,9 @@ const resolveTemplateMedia = (mediaPathEnvKey = 'WHATSAPP_TEMPLATE_MEDIA_PATH') 
  *
  * New user (default): uses WHATSAPP_TEMPLATE_ID (e.g. 29) when templateId is omitted.
  * Existing user: pass templateId = WHATSAPP_EXISTING_USER_TEMPLATE_ID (e.g. 30)
- *   and optionally mediaPathEnvKey = 'WHATSAPP_EXISTING_USER_TEMPLATE_MEDIA_PATH'.
+ *   and mediaPathEnvKey = 'WHATSAPP_EXISTING_USER_TEMPLATE_MEDIA_PATH' when that image differs.
+ * Community resident: pass WHATSAPP_COMMUNITY_TEMPLATE_ID and
+ *   mediaPathEnvKey = 'WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH'.
  *
  * Optional overrides: templateId, mediaPathEnvKey, sample (for templates with placeholders).
  */

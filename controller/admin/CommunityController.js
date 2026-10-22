@@ -14,6 +14,8 @@ const formatUsageToThreeDecimals = (value) => parseFloat(value || 0).toFixed(3);
 
 const COMMUNITY_ADDED_FROM = 'Community';
 const RIDER_EMAIL_CONFLICT_MSG = 'Email already exists';
+const RESIDENT_EMAIL_EXISTS_MSG = 'Resident email already exists';
+const RESIDENT_MOBILE_EXISTS_MSG = 'Resident mobile already exists';
 const VEHICLE_SPECIFICATION_OPTIONS = ['GCC', 'Non-GCC'];
 
 /**
@@ -87,8 +89,24 @@ const resolveVehicleEmiratesCode = async (input) => {
 
 /**
  * Find rider by mobile, or create one for the community resident.
- * Returns { rider_id } or { emailConflict: true }.
+ * Same mobile and same email links that rider.
+ * A mobile or email that belongs to someone else is a conflict, and no resident is created.
+ * Returns { rider_id, isNewRider } or { mobileConflict, emailConflict }.
  */
+const riderContactConflicts = (existing, riderEmail, emailOnOtherRider) => {
+    const existingEmail = existing?.rider_email ? String(existing.rider_email).trim() : '';
+    const emailsDiffer = !!(
+        existing?.rider_id
+        && riderEmail
+        && existingEmail
+        && existingEmail.toLowerCase() !== riderEmail.toLowerCase()
+    );
+    const mobileConflict = !!(existing?.rider_id && (emailsDiffer || emailOnOtherRider));
+    const emailConflict = !!emailOnOtherRider;
+
+    return { mobileConflict, emailConflict };
+};
+
 const findOrCreateRiderForResident = async ({
     mobile,
     country_code,
@@ -97,19 +115,23 @@ const findOrCreateRiderForResident = async ({
     emirates,
 }) => {
     const existing = await queryDB(
-        `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
+        `SELECT rider_id, rider_email FROM riders WHERE rider_mobile = ? LIMIT 1`,
         [mobile]
     );
 
-    const riderEmail = email || null;
+    const riderEmail = email ? String(email).trim() : '';
+    let emailOnOtherRider = false;
     if (riderEmail) {
         const emailTaken = await queryDB(
             `SELECT rider_id FROM riders WHERE rider_email = ? AND rider_id != ? LIMIT 1`,
             [riderEmail, existing?.rider_id || '']
         );
-        if (emailTaken?.rider_id) {
-            return { emailConflict: true };
-        }
+        emailOnOtherRider = !!emailTaken?.rider_id;
+    }
+
+    const conflicts = riderContactConflicts(existing, riderEmail, emailOnOtherRider);
+    if (conflicts.mobileConflict || conflicts.emailConflict) {
+        return conflicts;
     }
 
     if (existing?.rider_id) {
@@ -125,7 +147,7 @@ const findOrCreateRiderForResident = async ({
             'rider_id', 'rider_name', 'last_name', 'rider_email', 'country_code',
             'rider_mobile', 'emirates', 'status', 'added_from',
         ], [
-            'ER', firstName, lastName, riderEmail, country_code || '+971',
+            'ER', firstName, lastName, riderEmail || null, country_code || '+971',
             mobile, emirates || null, 0, COMMUNITY_ADDED_FROM,
         ]);
 
@@ -138,10 +160,14 @@ const findOrCreateRiderForResident = async ({
         return { rider_id: riderId, isNewRider: true };
     } catch (error) {
         const raced = await queryDB(
-            `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
+            `SELECT rider_id, rider_email FROM riders WHERE rider_mobile = ? LIMIT 1`,
             [mobile]
         );
         if (raced?.rider_id) {
+            const racedConflicts = riderContactConflicts(raced, riderEmail, false);
+            if (racedConflicts.mobileConflict || racedConflicts.emailConflict) {
+                return racedConflicts;
+            }
             return { rider_id: raced.rider_id, isNewRider: false };
         }
         throw error;
@@ -150,6 +176,7 @@ const findOrCreateRiderForResident = async ({
 
 /**
  * Add vehicle for rider; marks it as default vehicle.
+ * Skips insert when this rider already has the same plate.
  */
 const addRiderVehicleForResident = async ({
     rider_id,
@@ -162,6 +189,20 @@ const addRiderVehicleForResident = async ({
     vehicle_number,
 }) => {
     const emiratesCode = await resolveVehicleEmiratesCode(vehicle_emirates);
+
+    const existingVehicle = await queryDB(
+        `SELECT id, vehicle_id FROM riders_vehicles
+         WHERE rider_id = ? AND emirates = ? AND vehicle_code = ? AND vehicle_number = ?
+         LIMIT 1`,
+        [rider_id, emiratesCode, vehicle_code, vehicle_number]
+    );
+
+    if (existingVehicle?.vehicle_id) {
+        return {
+            insertId : existingVehicle.id,
+            data     : { vehicle_id: existingVehicle.vehicle_id },
+        };
+    }
 
     await updateRecord('riders_vehicles', { default_vehicle: 0 }, ['rider_id'], [rider_id]);
 
@@ -850,6 +891,104 @@ export const communityAreaList = asyncHandler(async (req, resp) => {
 //without multi community
 
 //with multi community
+
+const RIDER_LOOKUP_COLUMNS = 'rider_id, rider_name, last_name, rider_email, rider_mobile, emirates';
+
+/**
+ * Name, email, mobile, and emirates for the add-resident form.
+ */
+const buildResidentRiderLookupData = (rider) => ({
+    resident_name  : [rider.rider_name, rider.last_name].filter(Boolean).join(' ').trim() || null,
+    resident_email : rider.rider_email || null,
+    mobile_number  : rider.rider_mobile,
+    emirates       : rider.emirates || null,
+});
+
+/**
+ * Lookup an existing rider by mobile and/or email while adding a resident.
+ * A new rider cannot reuse either value. Same person on both fields is returned
+ * for the form. An email that belongs to a different rider is a conflict.
+ */
+export const residentRiderLookup = asyncHandler(async (req, resp) => {
+    const { mobile_number, resident_email } = mergeParam(req);
+    const mobile = mobile_number ? String(mobile_number).trim() : '';
+    const email  = resident_email ? String(resident_email).trim() : '';
+
+    if (!mobile && !email) {
+        return resp.json({ status: 0, code: 422, message: ['mobile_number or resident_email is required.'] });
+    }
+    if (email) {
+        const { isValid, errors } = validateFields(
+            { resident_email: email },
+            { resident_email: ['email'] }
+        );
+        if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
+    }
+
+    const byMobile = mobile
+        ? await queryDB(
+            `SELECT ${RIDER_LOOKUP_COLUMNS} FROM riders WHERE rider_mobile = ? LIMIT 1`,
+            [mobile]
+        )
+        : null;
+    const byEmail = email
+        ? await queryDB(
+            `SELECT ${RIDER_LOOKUP_COLUMNS} FROM riders WHERE rider_email = ? LIMIT 1`,
+            [email]
+        )
+        : null;
+
+    const mobileRiderEmail = byMobile?.rider_email ? String(byMobile.rider_email).trim() : '';
+    const typedEmailDiffersFromMobileRider = !!(
+        byMobile?.rider_id
+        && email
+        && mobileRiderEmail
+        && mobileRiderEmail.toLowerCase() !== email.toLowerCase()
+    );
+    const emailBelongsToSomeoneElse = !!(
+        byEmail?.rider_id
+        && mobile
+        && byEmail.rider_id !== byMobile?.rider_id
+    );
+    const mobileConflict = !!(byMobile?.rider_id && (typedEmailDiffersFromMobileRider || emailBelongsToSomeoneElse));
+    const emailConflict = !!emailBelongsToSomeoneElse;
+    if (mobileConflict || emailConflict) {
+        const message = mobileConflict && emailConflict
+            ? ['Mobile number and Email already exist']
+            : mobileConflict
+                ? ['Mobile number already exists']
+                : [RIDER_EMAIL_CONFLICT_MSG];
+        return resp.json({
+            status         : 0,
+            code           : 422,
+            message,
+            found          : 0,
+            mobile_conflict : mobileConflict ? 1 : 0,
+            email_conflict  : emailConflict ? 1 : 0,
+            data           : null,
+        });
+    }
+
+    const rider = byMobile?.rider_id ? byMobile : byEmail;
+    if (!rider?.rider_id) {
+        return resp.json({
+            status  : 1,
+            code    : 200,
+            message : ['Rider not found.'],
+            found   : 0,
+            data    : null,
+        });
+    }
+
+    return resp.json({
+        status  : 1,
+        code    : 200,
+        message : ['Rider found.'],
+        found   : 1,
+        data    : buildResidentRiderLookupData(rider),
+    });
+});
+
 export const addResidentMulti = asyncHandler(async (req, resp) => {
     try {
         const {
@@ -904,12 +1043,11 @@ export const addResidentMulti = asyncHandler(async (req, resp) => {
         );
 
         const types = duplicateCheck.map((row) => row.type);
-        if (types.includes('mobile') && types.includes('email')) {
-            return resp.json({ status: 0, code: 422, message: ["Mobile number and Email already exist"] });
-        } else if (types.includes('mobile')) {
-            return resp.json({ status: 0, code: 422, message: ["Mobile number already exists"] });
-        } else if (types.includes('email')) {
-            return resp.json({ status: 0, code: 422, message: ["Email already exists"] });
+        const residentDuplicateMessages = [];
+        if (types.includes('email')) residentDuplicateMessages.push(RESIDENT_EMAIL_EXISTS_MSG);
+        if (types.includes('mobile')) residentDuplicateMessages.push(RESIDENT_MOBILE_EXISTS_MSG);
+        if (residentDuplicateMessages.length) {
+            return resp.json({ status: 0, code: 422, message: residentDuplicateMessages });
         }
 
         const riderResult = await findOrCreateRiderForResident({
@@ -920,6 +1058,12 @@ export const addResidentMulti = asyncHandler(async (req, resp) => {
             emirates,
         });
 
+        if (riderResult.mobileConflict && riderResult.emailConflict) {
+            return resp.json({ status: 0, code: 422, message: ["Mobile number and Email already exist"] });
+        }
+        if (riderResult.mobileConflict) {
+            return resp.json({ status: 0, code: 422, message: ["Mobile number already exists"] });
+        }
         if (riderResult.emailConflict) {
             return resp.json({ status: 0, code: 422, message: [RIDER_EMAIL_CONFLICT_MSG] });
         }
@@ -1240,12 +1384,11 @@ export const editResidentMulti = asyncHandler(async (req, resp) => {
         );
 
         const types = duplicateCheck.map((row) => row.type);
-        if (types.includes('mobile') && types.includes('email')) {
-            return resp.json({ status: 0, code: 422, message: ["Mobile number and Email already exist"] });
-        } else if (types.includes('mobile')) {
-            return resp.json({ status: 0, code: 422, message: ["Mobile number already exists"] });
-        } else if (types.includes('email')) {
-            return resp.json({ status: 0, code: 422, message: ["Email already exists"] });
+        const residentDuplicateMessages = [];
+        if (types.includes('email')) residentDuplicateMessages.push(RESIDENT_EMAIL_EXISTS_MSG);
+        if (types.includes('mobile')) residentDuplicateMessages.push(RESIDENT_MOBILE_EXISTS_MSG);
+        if (residentDuplicateMessages.length) {
+            return resp.json({ status: 0, code: 422, message: residentDuplicateMessages });
         }
 
         const primaryCommunityId = communityCheck.communityIds[0];

@@ -38,7 +38,7 @@ import { podDeviceList, podDeviceDetails, addPodDevice, editPodDevice, deletePod
 
 import { chargeShareList, chargeShareDetail, outputAndConnector, editAcceptChargShare, rejectChargShare } from "../controller/admin/ChargeShareController.js";
 
-import { communityList, communityDetail, addCommunity, editCommunity, allCommunityList, addResidentMulti, editResidentMulti, residentListMulti, residentListMultiOld, residentDetailMulti, residentSearchMulti, communityAreaList, getInvoiceData, createScanChargeInvoice, scanChargeInvoiceList, scanChargeInvoiceDetail, sessionList, sessionDetail } from "../controller/admin/CommunityController.js";
+import { communityList, communityDetail, addCommunity, editCommunity, allCommunityList, addResidentMulti, editResidentMulti, residentListMulti, residentListMultiOld, residentDetailMulti, residentSearchMulti, residentRiderLookup, communityAreaList, getInvoiceData, createScanChargeInvoice, scanChargeInvoiceList, scanChargeInvoiceDetail, sessionList, sessionDetail } from "../controller/admin/CommunityController.js";
 // import { addResidentMulti, editResidentMulti, residentListMulti, residentListMultiOld, residentDetailMulti, residentSearchMulti } from "../controller/admin/CommunityControllerNew.js";
 // import { uploadFile, uploadFileMiddleware } from "../controller/admin/UploadController.js";
 
@@ -260,6 +260,7 @@ const adminRoutes = [
     // { method: 'post',  path: '/resident-search',            handler : residentSearchMulti },
 
     // Resident Routes (multi-community — CommunityControllerNew)
+    { method: 'post',  path: '/resident-rider-lookup', handler: residentRiderLookup },
     { method: 'post',  path: '/resident-add',     handler: addResidentMulti },
     { method: 'post',  path: '/resident-edit',    handler: editResidentMulti },
     { method: 'post',  path: '/resident-list',    handler: residentListMulti },

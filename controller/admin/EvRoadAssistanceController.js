@@ -23,12 +23,7 @@ const RSA_OFFLINE_STATUS_MAP = {
     'CANCELED'  : 'C',
 };
 
-// const RSA_OFFLINE_STATUS_LABEL = {
-//     CNF : 'confirmed',
-//     PU  : 'completed',
-//     C   : 'cancelled',
-// };
-
+// Stored booking statuses: CNF confirmed, PU completed, C cancelled.
 const RSA_OFFLINE_STATUS_ALLOWED_MSG =
     'Invalid booking status. Allowed values are Confirmed (CNF), Completed (PU), or Cancelled (C).';
 
@@ -36,16 +31,11 @@ const RSA_OFFLINE_BOOKING_TABLE = 'rsa_offline_booking';
 const RSA_OFFLINE_HISTORY_TABLE = 'rsa_offline_order_history';
 const RSA_OFFLINE_INVOICE_TABLE = 'rsa_offline_invoice';
 
-// Both ids are derived from the row's AUTO_INCREMENT id, so two admins saving at the
-// same moment can never be handed the same number.
+// Request and invoice ids use the row auto-increment id so concurrent saves stay unique.
 const buildOfflineRequestId = (rowId) => `RA-${String(rowId).padStart(3, '0')}`;
 const buildOfflineInvoiceId = (rowId) => `RAINV-${String(rowId).padStart(2, '0')}`;
 
-/**
- * Offline RSA WhatsApp on Completed (PU) bookings — newly created riders only; existing riders are skipped.
- * Uses the default WHATSAPP_TEMPLATE_ID, once per mobile (whatsapp_sent).
- * Called from addOfflineRSABooking / editOfflineRSABooking.
- */
+// Sends the app-download WhatsApp once per mobile for Completed bookings of new riders only.
 const sendOfflineBookingWhatsApp = async ({
     isCompleted,
     isNewRider,
@@ -171,9 +161,7 @@ const resolveOfflineRsaDriver = async (rsa_id, driver_name, booking_completed_by
 const RSA_OFFLINE_PROOF_FOLDER = 'rsa-offline-proof';
 const RIDER_EMAIL_CONFLICT_MSG = 'Email already exists';
 
-// Find rider by mobile, or create one so the customer can OTP-login without signup.
-// Returns { rider_id, isNewRider } so WhatsApp can target newly created users only,
-// or { emailConflict: true } when the email belongs to a rider with a different mobile.
+// Finds a rider by mobile or creates one; returns emailConflict when that email belongs to another mobile.
 const findOrCreateRiderByMobile = async ({
     mobile,
     country_code,
@@ -350,7 +338,7 @@ const parsePriceDetails = (value) => {
     }
 };
 
-/* RA Booking */
+// Roadside assistance bookings.
 export const bookingList = asyncHandler(async (req, resp) => {
     const { start_date, end_date, search_text = '', status, page_no, rowSelected } = req.body;
 
@@ -359,21 +347,7 @@ export const bookingList = asyncHandler(async (req, resp) => {
     const whereOperators = ["!=", "!="]
 
     if (start_date && end_date) {
-        
-        // const startToday         = new Date(start_date);
-        // const startFormattedDate = `${startToday.getFullYear()}-${(startToday.getMonth() + 1).toString()
-        //     .padStart(2, '0')}-${startToday.getDate().toString().padStart(2, '0')}`;
-                    
-        // const givenStartDateTime    = startFormattedDate+' 00:00:01';
-        // const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours');
-        // const start                 = modifiedStartDateTime.format('YYYY-MM-DD HH:mm:ss')
-        
-        // const endToday         = new Date(end_date);
-        // const formattedEndDate = `${endToday.getFullYear()}-${(endToday.getMonth() + 1).toString()
-        //     .padStart(2, '0')}-${endToday.getDate().toString().padStart(2, '0')}`;
-        // const end = formattedEndDate+' 19:59:59';
-
-        //optimized code
+        // Created-at window: start of day minus 4 hours through 19:59:59 UTC (end of Gulf day).
         const start = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
         const end = moment(end_date, "YYYY-MM-DD").format("YYYY-MM-DD") + " 19:59:59";
 
@@ -593,8 +567,7 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
     }
 
     if (start_date && end_date) {
-        // Same window as the online bookingList: start of day minus the 4-hour UTC offset,
-        // and end of day (23:59:59 Gulf time = 19:59:59 UTC) so bookings on end_date are included.
+        // Same created-at window as bookingList: start of day minus 4 hours through 19:59:59 UTC.
         const start = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
         const end   = moment(end_date, "YYYY-MM-DD").format("YYYY-MM-DD") + ' 19:59:59';
 
@@ -657,10 +630,7 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
     });
 });
 
-/**
- * Lookup existing rider by mobile and/or email for offline RSA Add form autofill.
- * Prefer mobile match, then email. Returns name + emirates (and contact fields).
- */
+// Looks up an existing rider by mobile, then email, to autofill the offline RSA add form.
 export const offlineRSARiderLookup = asyncHandler(async (req, resp) => {
     const { mobile_no, email_id, emailId, country_code } = mergeParam(req);
     const mobileNo = toNullableText(mobile_no);
@@ -764,9 +734,7 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
     if (isBookingNotCompleted && orderStatus === 'PU') {
         return resp.json({ status: 0, code: 422, message: [RSA_OFFLINE_NOT_COMPLETED_STATUS_MSG] });
     }
-    // Completed (PU): invoice + WhatsApp; completed date / completed-by / mode_of_payment apply.
-    // Confirmed (CNF) / Cancelled (C): booking_completed_date, booking_completed_by, mode_of_payment not required.
-    // Cancelled (C): cancellation_remarks required (optional when booking is not completed).
+// PU applies completion fields; C requires cancellation remarks unless the booking is not completed.
     const isCompleted = orderStatus === 'PU';
     const isCancelled = orderStatus === 'C';
     const cancellationRemarks = isCancelled ? toNullableText(cancellation_remarks) : null;
@@ -1015,9 +983,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
     }
 
     const wasCompleted = existing.order_status === 'PU';
-    // Completed (PU): invoice + WhatsApp; completed date / completed-by / mode_of_payment apply.
-    // Confirmed (CNF) / Cancelled (C): booking_completed_date, booking_completed_by, mode_of_payment not required.
-    // Cancelled (C): cancellation_remarks required (optional when booking is not completed).
+    // PU applies completion fields; C requires cancellation remarks unless the booking is not completed.
     const isCompleted  = orderStatus === 'PU';
     const isCancelled  = orderStatus === 'C';
     const cancellationRemarks = isCancelled ? toNullableText(cancellation_remarks) : null;
@@ -1060,8 +1026,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         let savedCountryCode  = country_code || '+971';
 
         if (isBookingNotCompleted) {
-            // Keep rider after app registration; look up again if empty or mobile/email changed.
-            // Fill empty name/emirates from riders when contact matches an existing rider.
+            // Keep the rider on the same contact; otherwise look up again and fill empty name and emirates.
             const sameContact = existing.mobile_no === mobileNo && (existing.email_id || null) === email;
             let existingRider = null;
             if (sameContact && existing.rider_id) {
@@ -1298,7 +1263,7 @@ export const evRoadAssistanceCancelBooking = asyncHandler(async (req, resp) => {
     return resp.json({ status: 1, code:200, message: "Booking has been cancelled successfully!."});
 });
 
-/* RA Invoie */
+// Roadside assistance invoices.
 export const invoiceList = asyncHandler(async (req, resp) => {
     const { page_no, search_text,start_date, end_date } = req.body;
 
@@ -1307,21 +1272,7 @@ export const invoiceList = asyncHandler(async (req, resp) => {
     const whereOperators = []
 
     if (start_date && end_date) {
-    
-        // const startToday         = new Date(start_date);
-        // const startFormattedDate = `${startToday.getFullYear()}-${(startToday.getMonth() + 1).toString()
-        //     .padStart(2, '0')}-${startToday.getDate().toString().padStart(2, '0')}`;
-                    
-        // const givenStartDateTime    = startFormattedDate+' 00:00:01';
-        // const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours'); 
-        // const start                 = modifiedStartDateTime.format('YYYY-MM-DD HH:mm:ss')
-        
-        // const endToday         = new Date(end_date);
-        // const formattedEndDate = `${endToday.getFullYear()}-${(endToday.getMonth() + 1).toString()
-        //     .padStart(2, '0')}-${endToday.getDate().toString().padStart(2, '0')}`;
-        // const end = formattedEndDate+' 19:59:59';
-
-        //optimized code
+        // Created-at window: start of day minus 4 hours through 19:59:59 UTC (end of Gulf day).
         const start = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
         const end = moment(end_date, "YYYY-MM-DD").format("YYYY-MM-DD") + " 19:59:59";
 
@@ -1456,10 +1407,7 @@ export const rsaAssignBooking = async (req, resp) => {
        
         const href    = 'road_assistance/' + booking_id;
         const heading = 'EV Roadside Assistance';
-        const desc    = `Booking Assigned : ${booking_id}`;
-        // createNotification(heading, desc, 'Roadside Assistance', 'Rider', 'Admin', '', booking_data.rider_id, href);
-        // pushNotification(booking_data.fcm_token, heading, desc, 'RDRFCM', href);
-
+        // Rider notification is skipped; the assigned RSA driver is notified below.
         const desc1 = `Booking Assigned : ${booking_id}`;
         createNotification(heading, desc1, 'Roadside Assistance', 'RSA', 'Admin', '', rsa_id, href);
         if(rsa.fcm_token) {
@@ -1517,21 +1465,7 @@ export const failedRSABookingList = async (req, resp) => {
             whereOperator    : []
         };
         if (start_date && end_date) {
-            
-            // const startToday = new Date(start_date);
-            // const startFormattedDate = `${startToday.getFullYear()}-${(startToday.getMonth() + 1).toString()
-            //     .padStart(2, '0')}-${startToday.getDate().toString().padStart(2, '0')}`;
-                       
-            // const givenStartDateTime    = startFormattedDate+' 00:00:01';
-            // const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours');
-            // const start        = modifiedStartDateTime.format('YYYY-MM-DD HH:mm:ss')
-            
-            // const endToday = new Date(end_date);
-            // const formattedEndDate = `${endToday.getFullYear()}-${(endToday.getMonth() + 1).toString()
-            //     .padStart(2, '0')}-${endToday.getDate().toString().padStart(2, '0')}`;
-            // const end = formattedEndDate+' 19:59:59';
-
-            //optimized code
+            // Created-at window: start of day minus 4 hours through 19:59:59 UTC (end of Gulf day).
             const start = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
             const end = moment(end_date, "YYYY-MM-DD").format("YYYY-MM-DD") + " 19:59:59";
 
@@ -1605,7 +1539,7 @@ export const failedRSABookingDetails = async (req, resp) => {
     }
 };
 
-/* Slot */
+// Roadside assistance slots.
 export const rsaSlotList = async (req, resp) => {
     try {
         const { page_no,  search_text = '', days =''} = req.body;
@@ -1637,10 +1571,9 @@ export const rsaSlotList = async (req, resp) => {
         const result = await getPaginatedData(params);
         const formattedData = result.data.map((item) => ({
             slot_id            : item.slot_id,
-            slot_date          : item.slot_date, //moment(item.slot_date, "DD-MM-YYYY").format('YYYY-MM-DD'),
-             
+            slot_date          : item.slot_date,
             status             : item.status,
-            slot_booking_count : 0, //item.slot_booking_count,
+            slot_booking_count : 0, // Booking count is not calculated in this list.
             timing             : `${item.start_time} - ${item.end_time}`,
             slot_price         : item.slot_price,
         }));
@@ -1664,8 +1597,7 @@ export const rsaSlotDetails = async (req, resp) => {
         const { isValid, errors } = validateFields(req.body, {slot_date: ["required"] });
         if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
 
-        // (SELECT COUNT(id) FROM road_assistance AS pod WHERE pod.slot_time = road_assistance_slot.start_time AND pod.slot_date = road_assistance_slot.slot_date AND status NOT IN ("PU", "C", "RO")) AS slot_booking_count
-
+        // Slot booking count is not included in this query.
         const [slotDetails] = await db.execute(`
             SELECT 
                 id, slot_id, slot_date, start_time, end_time, slot_price, status
@@ -1706,7 +1638,7 @@ export const rsaSlotAdd = async (req, resp) => {
             return resp.json({ status: 0, code: 422, message: 'All input arrays must have the same length.' });
         }
         const values = []; const placeholders = [];
-        // const fSlotDate = moment(slot_date, "DD-MM-YYYY").format("YYYY-MM-DD");
+        // slot_date is stored as received.
         for (let i = 0; i < start_time.length; i++) {            
             const slotId = `PTS${generateUniqueId({ length:6 })}`;
             values.push(slotId, slot_date, convertTo24HourFormat(start_time[i]), convertTo24HourFormat(end_time[i]), slot_price[i], status[i]);
@@ -1743,17 +1675,16 @@ export const rsaSlotEdit = asyncHandler(async (req, resp) => {
     if ( start_time.length !== end_time.length || end_time.length !== slot_price.length || slot_price.length !== status.length ) {
         return resp.json({ status: 0, code: 422, message: "All input arrays must have the same length." });
     }
-    // let fSlotDate = moment(slot_date, "DD-MM-YYYY").format("YYYY-MM-DD");
     let errMsg    = [];
 
-    //  Fetch existing slots for the given date
+    // Load slots already saved for this date.
     const [existingSlots] = await db.execute("SELECT slot_id FROM road_assistance_slot WHERE slot_date = ?",[slot_date]);
     const existingSlotIds = existingSlots.map((slot) => slot.slot_id);
 
-    // Determine slots to delete
+    // Slots missing from the request are deleted.
     const slotsToDelete = existingSlotIds.filter((id) => !slot_id.includes(id));
 
-    //Delete slots that are no longer needed
+    // Delete slots that are no longer in the request.
     for (let id of slotsToDelete) {
         const [deleteResult] = await db.execute("DELETE FROM road_assistance_slot WHERE slot_id = ?", [id] );
 
@@ -1761,7 +1692,7 @@ export const rsaSlotEdit = asyncHandler(async (req, resp) => {
             errMsg.push(`Failed to delete slot with id ${id}.`);
         }
     }
-    // Update or insert slots
+    // Update an existing slot or insert a new one.
     for (let i = 0; i < start_time.length; i++) {
         const updates = {
             slot_date  : slot_date,
@@ -1771,7 +1702,7 @@ export const rsaSlotEdit = asyncHandler(async (req, resp) => {
             slot_price : slot_price[i],
         };
         if (slot_id[i]) {
-            // Update existing slot
+            // Update the existing slot.
             const [updateResult] = await db.execute(`UPDATE road_assistance_slot SET start_time = ?, end_time = ?, status = ?, slot_price = ? 
                   WHERE slot_id = ? AND slot_date = ?`,
                 [
@@ -1786,7 +1717,7 @@ export const rsaSlotEdit = asyncHandler(async (req, resp) => {
             if (updateResult.affectedRows === 0)
                 errMsg.push(`Failed to update ${start_time[i]} for slot_day ${slot_date}.`);
         } else {
-            // Insert new slot
+            // Insert a new slot.
             const newSlotId = `PST${generateUniqueId({ length: 6 })}`;
             const [insertResult] = await db.execute(`INSERT INTO road_assistance_slot (slot_id, slot_date, start_time, end_time, slot_price, status)  VALUES (?, ?, ?, ?, ?, ?)`,
                 [

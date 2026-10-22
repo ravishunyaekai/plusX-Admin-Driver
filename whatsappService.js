@@ -36,12 +36,7 @@ const resolveExtension = (filePath, fallback = 'jpg') => {
     return ext === 'jpeg' ? 'jpg' : ext;
 };
 
-/**
- * Resolve template media file from env.
- * Default: WHATSAPP_TEMPLATE_MEDIA_PATH (./uploads/whatsapp/...).
- * A dedicated key (community resident, existing user) is used as-is and does not
- * fall back to WHATSAPP_TEMPLATE_MEDIA_PATH.
- */
+// Loads the template image from the given env path, or WHATSAPP_TEMPLATE_MEDIA_PATH when no dedicated key is passed.
 const resolveTemplateMedia = (mediaPathEnvKey = 'WHATSAPP_TEMPLATE_MEDIA_PATH') => {
     const dedicatedKey = mediaPathEnvKey && mediaPathEnvKey !== 'WHATSAPP_TEMPLATE_MEDIA_PATH';
     const mediaPath = dedicatedKey
@@ -66,21 +61,7 @@ const resolveTemplateMedia = (mediaPathEnvKey = 'WHATSAPP_TEMPLATE_MEDIA_PATH') 
     };
 };
 
-/**
- * Send WhatsApp template via MessageBot Public API.
- *
- * Shared by new and existing riders — same function, different templateId.
- * Env required: WHATSAPP_API_TOKEN, WHATSAPP_TEMPLATE_ID (default / new user),
- * WHATSAPP_API_BASE_URL, WHATSAPP_TEMPLATE_MEDIA_PATH
- *
- * New user (default): uses WHATSAPP_TEMPLATE_ID (e.g. 29) when templateId is omitted.
- * Existing user: pass templateId = WHATSAPP_EXISTING_USER_TEMPLATE_ID (e.g. 30)
- *   and mediaPathEnvKey = 'WHATSAPP_EXISTING_USER_TEMPLATE_MEDIA_PATH' when that image differs.
- * Community resident: pass WHATSAPP_COMMUNITY_TEMPLATE_ID and
- *   mediaPathEnvKey = 'WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH'.
- *
- * Optional overrides: templateId, mediaPathEnvKey, sample (for templates with placeholders).
- */
+// Sends a MessageBot template; omit templateId for the default, or pass templateId and mediaPathEnvKey for another template.
 export const sendAppDownloadWhatsApp = async ({
     customerName,
     countryCode,
@@ -161,16 +142,7 @@ export const sendAppDownloadWhatsApp = async ({
     };
 };
 
-/**
- * Send WhatsApp once per mobile within a single module table.
- * RSA offline and charger inquiry are independent — each table has its own whatsapp_sent flag.
- *
- * Used for both new and existing users (same once-per-mobile gate).
- * Callers choose the template:
- *   - New user: omit templateId → WHATSAPP_TEMPLATE_ID (app-download template)
- *   - Existing user: pass templateId (WHATSAPP_EXISTING_USER_TEMPLATE_ID) + optional mediaPathEnvKey
- * Marks whatsapp_sent = 1 on the record after a successful send.
- */
+// Sends once per mobile in the given table, then sets whatsapp_sent = 1 on that record.
 export const sendAppDownloadWhatsAppOnceByMobile = async ({
     tableName,
     recordIdField,

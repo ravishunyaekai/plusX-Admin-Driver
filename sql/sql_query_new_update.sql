@@ -19,11 +19,6 @@ ALTER TABLE `plusx-node`.`rsa_offline_booking`
     MODIFY COLUMN address       TEXT         NULL;
 
 
------------------------------------------------------------------------------
-ALTER TABLE `plusx-node`.`rsa_offline_booking`
-    MODIFY COLUMN mobile_no VARCHAR(20) NULL DEFAULT NULL;
-
-
 ----------------------------------------------------------------------------
 ALTER TABLE `plusx-node`.`community_resident`
     ADD COLUMN emirates VARCHAR(100) NULL DEFAULT NULL AFTER address;

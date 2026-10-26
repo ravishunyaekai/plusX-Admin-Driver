@@ -39,7 +39,8 @@ import { podDeviceList, podDeviceDetails, addPodDevice, editPodDevice, deletePod
 import { chargeShareList, chargeShareDetail, outputAndConnector, editAcceptChargShare, rejectChargShare } from "../controller/admin/ChargeShareController.js";
 
 import { communityList, communityDetail, addCommunity, editCommunity, allCommunityList, addResidentMulti, editResidentMulti, residentListMulti, residentListMultiOld, residentDetailMulti, residentSearchMulti, residentRiderLookup, communityAreaList, getInvoiceData, createScanChargeInvoice, scanChargeInvoiceList, scanChargeInvoiceDetail, sessionList, sessionDetail } from "../controller/admin/CommunityController.js";
- 
+
+import { vendorList, addVendor, vendorDetail, editVendor, allVendorList, addCustomer, customerList } from "../controller/admin/VendorController.js";
 // import { uploadFile, uploadFileMiddleware } from "../controller/admin/UploadController.js";
 
 const router = Router();

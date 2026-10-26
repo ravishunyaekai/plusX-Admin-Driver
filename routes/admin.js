@@ -4,7 +4,7 @@ import { adminAuthorization } from "../middleware/admin/authorizeMiddleware.js";
 
 import { login, logout, forgotPassword, updatePassword } from "../controller/admin/AuthController.js";
 
-import { getDashboardData, riderList, riderDetails, deleteRider, notificationList, locationList, areaList, deletedRiderList, bookingAreaList, topRatedAreaList, riderBookingLists } from "../controller/admin/AdminController.js";
+import { getDashboardData, riderList, riderDetails, deleteRider, notificationList, locationList, areaList, deletedRiderList, bookingAreaList, topRatedAreaList, riderBookingLists, vehicleBrandList, bikeVehicleBrandList } from "../controller/admin/AdminController.js";
 
 import { chargerBookingList, chargerBookingDetails, assignBooking, invoiceList, invoiceDetails, slotList, addSlot, editSlot, deleteSlot, slotDetails, adminCancelPCBooking, customerChargerBookingList, failedChargerBookingList, failedchargerBookingDetails, AddChargingPackage, UpdateChargingPackage, ChargingPackageList, ChargingPackageDetails, deletePackage
 } from "../controller/admin/PortableChargerController.js";
@@ -24,7 +24,7 @@ import { rsaList, rsaData, rsaAdd, rsaUpdate, rsaDelete, rsaStatusChange, driver
 
 import {
     bookingData, bookingList as evRoadAssistanceBooking, invoiceList as evRoadAssistanceInvoice, invoiceData, evRoadAssistanceCancelBooking, rsaAssignBooking, failedRSABookingList, failedRSABookingDetails,
-    rsaSlotList, rsaSlotDetails, rsaSlotAdd, rsaSlotEdit, rsaDeleteSlot, addOfflineRSABooking, editOfflineRSABooking, offlineRSABookingList, offlineRSABookingData, offlineRSAVehicleList
+    rsaSlotList, rsaSlotDetails, rsaSlotAdd, rsaSlotEdit, rsaDeleteSlot, addOfflineRSABooking, editOfflineRSABooking, offlineRSABookingList, offlineRSABookingData, offlineRSARiderLookup
 } from '../controller/admin/EvRoadAssistanceController.js'
 
 import { couponDetail, couponList, couponAdd, couponEdit, couponDelete } from "../controller/admin/CouponController.js";
@@ -38,10 +38,9 @@ import { podDeviceList, podDeviceDetails, addPodDevice, editPodDevice, deletePod
 
 import { chargeShareList, chargeShareDetail, outputAndConnector, editAcceptChargShare, rejectChargShare } from "../controller/admin/ChargeShareController.js";
 
-import { communityList, communityDetail, addCommunity, editCommunity, allCommunityList, addResidentMulti, editResidentMulti, residentListMulti, residentListMultiOld, residentDetailMulti, residentSearchMulti, communityAreaList, getInvoiceData, createScanChargeInvoice, scanChargeInvoiceList, scanChargeInvoiceDetail, sessionList, sessionDetail } from "../controller/admin/CommunityController.js";
+import { communityList, communityDetail, addCommunity, editCommunity, allCommunityList, addResidentMulti, editResidentMulti, residentListMulti, residentListMultiOld, residentDetailMulti, residentSearchMulti, residentRiderLookup, communityAreaList, getInvoiceData, createScanChargeInvoice, scanChargeInvoiceList, scanChargeInvoiceDetail, sessionList, sessionDetail } from "../controller/admin/CommunityController.js";
  
-
-import { addVendor, vendorList, vendorDetail, editVendor, allVendorList, addCustomer, customerList } from "../controller/admin/VendorController.js";
+// import { uploadFile, uploadFileMiddleware } from "../controller/admin/UploadController.js";
 
 const router = Router();
 
@@ -66,7 +65,9 @@ const adminRoutes = [
     { method: 'post', path: '/rider-list',          handler: riderList },
     { method: 'post', path: '/rider-details',       handler: riderDetails },
     { method: 'post', path: '/delete-rider',        handler: deleteRider },
-    { method: 'post', path: '/location-list',       handler: locationList },
+    { method: 'post', path: '/location-list',           handler: locationList },
+    { method: 'post', path: '/vehicle-brand-list',      handler: vehicleBrandList },
+    { method: 'post', path: '/vehicle-bike-brand-list', handler: bikeVehicleBrandList },
     { method: 'post',  path: '/location-area-list', handler: areaList },
     { method: 'post', path: '/deleted-rider-list',  handler: deletedRiderList },
     { method: 'post',  path: '/all-area-list',      handler: bookingAreaList },
@@ -143,7 +144,8 @@ const adminRoutes = [
     { method: 'post', path: '/ev-road-assistance-edit-offline-booking',    handler: editOfflineRSABooking },
     { method: 'post', path: '/ev-road-assistance-offline-booking-list',    handler: offlineRSABookingList },
     { method: 'post', path: '/ev-road-assistance-offline-booking-details', handler: offlineRSABookingData },
-    { method: 'post',  path: '/ev-road-assistance-offline-vehicle-list',   handler: offlineRSAVehicleList },
+    { method: 'post', path: '/ev-road-assistance-offline-rider-lookup', handler: offlineRSARiderLookup },
+    { method: 'post',  path: '/ev-road-assistance-offline-vehicle-list', handler: vehicleBrandList },
     { method: 'post', path: '/ev-road-assistance-cancel-booking',  handler: evRoadAssistanceCancelBooking },
     { method: 'post', path: '/ev-road-assistance-invoice-list',    handler: evRoadAssistanceInvoice },
     { method: 'post', path: '/ev-road-assistance-invoice-data',    handler: invoiceData },
@@ -258,9 +260,11 @@ const adminRoutes = [
     // { method: 'post',  path: '/resident-search',  handler : residentSearchMulti },
 
     // Resident Routes (multi-community — CommunityControllerNew)
-    { method: 'post',  path: '/resident-add',      handler: addResidentMulti },
-    { method: 'post',  path: '/resident-edit',     handler: editResidentMulti },
-    { method: 'post',  path: '/resident-list',     handler: residentListMulti },
+    { method: 'post',  path: '/resident-rider-lookup', handler: residentRiderLookup },
+    { method: 'post',  path: '/resident-add',     handler: addResidentMulti },
+    { method: 'post',  path: '/resident-edit',    handler: editResidentMulti },
+    { method: 'post',  path: '/resident-list',    handler: residentListMulti },
+
     { method: 'post',  path: '/resident-list-old', handler: residentListMultiOld },
      
     { method: 'post',  path: '/resident-details', handler: residentDetailMulti },

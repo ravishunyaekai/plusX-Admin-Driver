@@ -6,7 +6,7 @@ import db from "../../config/db.js";
 import moment from "moment";
 import bcrypt from "bcryptjs";
 import generateUniqueId from 'generate-unique-id';
-import { sendAppDownloadWhatsApp } from '../../whatsappService.js';
+// import { sendAppDownloadWhatsApp } from '../../whatsappService.js';
 
 import { tryCatchErrorHandler } from "../../middleware/errorHandler.js";
 
@@ -18,57 +18,57 @@ const RESIDENT_EMAIL_EXISTS_MSG = 'Resident email already exists';
 const RESIDENT_MOBILE_EXISTS_MSG = 'Resident mobile already exists';
 const VEHICLE_SPECIFICATION_OPTIONS = ['GCC', 'Non-GCC'];
 
-/**
- * WhatsApp for newly created community riders only.
- * Requires WHATSAPP_COMMUNITY_TEMPLATE_ID and WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH.
- * The resident image is separate from WHATSAPP_TEMPLATE_MEDIA_PATH.
- * Never blocks resident add — failures are logged and returned as status.
- */
-const sendCommunityResidentWhatsApp = async ({
-    isNewRider,
-    resident_id,
-    resident_name,
-    country_code,
-    mobile_number,
-    rider_id,
-}) => {
-    let whatsapp_status = 'not_applicable';
-    let whatsapp_campaign_id = null;
-
-    if (!isNewRider) {
-        return { whatsapp_status, whatsapp_campaign_id };
-    }
-
-    const templateId = process.env.WHATSAPP_COMMUNITY_TEMPLATE_ID;
-    const mediaPath = process.env.WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH;
-    if (!templateId || !mediaPath) {
-        console.warn('[community-resident-add] WhatsApp skipped: WHATSAPP_COMMUNITY_TEMPLATE_ID or WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH not configured');
-        return { whatsapp_status: 'not_configured', whatsapp_campaign_id: null };
-    }
-
-    try {
-        const whatsappResult = await sendAppDownloadWhatsApp({
-            customerName    : resident_name,
-            countryCode     : country_code || '+971',
-            mobile          : mobile_number,
-            campaignName    : `Community_Resident_${resident_id}`,
-            templateId,
-            mediaPathEnvKey : 'WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH',
-        });
-
-        whatsapp_status = 'accepted';
-        whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
-    } catch (whatsappError) {
-        whatsapp_status = 'failed';
-        console.error('[community-resident-add] WhatsApp message failed:', {
-            resident_id,
-            rider_id,
-            error: whatsappError.response?.data || whatsappError.message,
-        });
-    }
-
-    return { whatsapp_status, whatsapp_campaign_id };
-};
+// /**
+//  * WhatsApp for newly created community riders only.
+//  * Requires WHATSAPP_COMMUNITY_TEMPLATE_ID and WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH.
+//  * The resident image is separate from WHATSAPP_TEMPLATE_MEDIA_PATH.
+//  * Never blocks resident add — failures are logged and returned as status.
+//  */
+// const sendCommunityResidentWhatsApp = async ({
+//     isNewRider,
+//     resident_id,
+//     resident_name,
+//     country_code,
+//     mobile_number,
+//     rider_id,
+// }) => {
+//     let whatsapp_status = 'not_applicable';
+//     let whatsapp_campaign_id = null;
+//
+//     if (!isNewRider) {
+//         return { whatsapp_status, whatsapp_campaign_id };
+//     }
+//
+//     const templateId = process.env.WHATSAPP_COMMUNITY_TEMPLATE_ID;
+//     const mediaPath = process.env.WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH;
+//     if (!templateId || !mediaPath) {
+//         console.warn('[community-resident-add] WhatsApp skipped: WHATSAPP_COMMUNITY_TEMPLATE_ID or WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH not configured');
+//         return { whatsapp_status: 'not_configured', whatsapp_campaign_id: null };
+//     }
+//
+//     try {
+//         const whatsappResult = await sendAppDownloadWhatsApp({
+//             customerName    : resident_name,
+//             countryCode     : country_code || '+971',
+//             mobile          : mobile_number,
+//             campaignName    : `Community_Resident_${resident_id}`,
+//             templateId,
+//             mediaPathEnvKey : 'WHATSAPP_COMMUNITY_TEMPLATE_MEDIA_PATH',
+//         });
+//
+//         whatsapp_status = 'accepted';
+//         whatsapp_campaign_id = whatsappResult?.campaignId ?? null;
+//     } catch (whatsappError) {
+//         whatsapp_status = 'failed';
+//         console.error('[community-resident-add] WhatsApp message failed:', {
+//             resident_id,
+//             rider_id,
+//             error: whatsappError.response?.data || whatsappError.message,
+//         });
+//     }
+//
+//     return { whatsapp_status, whatsapp_campaign_id };
+// };
 
 /**
  * Resolve plate emirates input (location_id / name / plat_code) to locations.plat_code.
@@ -1102,14 +1102,14 @@ export const addResidentMulti = asyncHandler(async (req, resp) => {
             return resp.json({ status: 0, message: "Resident added but failed to add vehicle. Please try again." });
         }
 
-        const { whatsapp_status, whatsapp_campaign_id } = await sendCommunityResidentWhatsApp({
-            isNewRider    : riderResult.isNewRider,
-            resident_id,
-            resident_name,
-            country_code  : country_code || '+971',
-            mobile_number,
-            rider_id      : riderResult.rider_id,
-        });
+        // const { whatsapp_status, whatsapp_campaign_id } = await sendCommunityResidentWhatsApp({
+        //     isNewRider    : riderResult.isNewRider,
+        //     resident_id,
+        //     resident_name,
+        //     country_code  : country_code || '+971',
+        //     mobile_number,
+        //     rider_id      : riderResult.rider_id,
+        // });
 
         const communities = await getCommunitiesForResident(resident_id);
 
@@ -1121,8 +1121,8 @@ export const addResidentMulti = asyncHandler(async (req, resp) => {
                 rider_id    : riderResult.rider_id,
                 vehicle_id  : vehicleInsert.data?.vehicle_id,
                 communities,
-                whatsapp_status,
-                whatsapp_campaign_id,
+                // whatsapp_status,
+                // whatsapp_campaign_id,
             },
         });
 

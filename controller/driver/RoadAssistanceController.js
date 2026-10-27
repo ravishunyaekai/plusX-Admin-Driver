@@ -472,7 +472,7 @@ const rsaInvoice = async (rider_id, request_id ) => {
     try {
         const checkOrder = await queryDB(`
             SELECT 
-                payment_intent_id, current_percent, booking_price, 
+                payment_intent_id, current_percent, booking_price, package_data,
                 (SELECT coupan_percentage FROM coupon_usage WHERE booking_id = rs.request_id LIMIT 1) AS discount
             FROM 
                 road_assistance as rs
@@ -517,7 +517,7 @@ const rsaInvoice = async (rider_id, request_id ) => {
             createObj.receipt_url       = charge.receipt_url;
             createObj.card_data         = cardData;
         }
-        createObj.price_details = await makeInvoicePriceDetails(checkOrder.booking_price, checkOrder.discount) ;
+        createObj.price_details = await makeInvoicePriceDetails(checkOrder.booking_price, checkOrder.discount, checkOrder.package_data);
         const columns = Object.keys(createObj);
         const values  = Object.values(createObj);
         const insert  = await insertRecord('road_assistance_invoice', columns, values);
@@ -531,9 +531,26 @@ const rsaInvoice = async (rider_id, request_id ) => {
     }
 };
 
-const makeInvoicePriceDetails = async (amount, discount) => {
 
-    let baseAmount      = Number(amount) || 0;
+const parseBookingPackageData = (packageData) => {
+    if (!packageData) return null;
+    if (typeof packageData === 'object') return packageData;
+    if (typeof packageData === 'string' && packageData !== '') {
+        try {
+            return JSON.parse(packageData);
+        } catch {
+            return null;
+        }
+    }
+    return null;
+};
+
+const makeInvoicePriceDetails = async (amount, discount, packageData = null) => {
+
+    const selectedPackage = parseBookingPackageData(packageData);
+    const package_id      = selectedPackage?.customer_id || "";
+
+    let baseAmount      = (package_id.startsWith("VC")) ? 0 : Number(amount) || 0;
     let discountPercent = Number(discount) || 0;
 
     const kwConsume = 25;

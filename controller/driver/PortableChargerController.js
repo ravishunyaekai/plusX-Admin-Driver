@@ -579,7 +579,7 @@ const getPodBatteryData = async (pod_id) => {
 export const portableChargerInvoice = async (rider_id, request_id ) => {
     try {
         const checkOrder = await queryDB(` 
-            SELECT 
+            SELECT
                 payment_intent_id, booking_price, package_data,
                 (SELECT coupan_percentage FROM coupon_usage as cu WHERE cu.booking_id = pod.booking_id LIMIT 1) AS discount
             FROM 
@@ -613,7 +613,7 @@ export const portableChargerInvoice = async (rider_id, request_id ) => {
                 exp_year  : charge.payment_method_details.card.exp_year,
                 last_four : charge.payment_method_details.card.last4,
             };
-            createObj.amount            = charge.amount;  
+            createObj.amount            = charge.amount;
             createObj.payment_intent_id = charge.payment_intent;  
             createObj.payment_method_id = charge.payment_method;  
             createObj.payment_cust_id   = charge.customer;  
@@ -655,7 +655,9 @@ const parseBookingPackageData = (packageData) => {
 const makeInvoicePriceDetails = async (amount, discount, packageData = null) => {
     const selectedPackage = parseBookingPackageData(packageData);
 
-    let baseAmount      = Number(selectedPackage?.price ?? amount) || 0;
+    const package_id = selectedPackage?.package_id || "";
+
+    let baseAmount      = (package_id.startsWith("VC")) ? 0 : Number(selectedPackage?.price ?? amount) || 0;
     let discountPercent = Number(discount) || 0;
 
     const kwConsume = Number(selectedPackage?.charging_capacity) || 25;

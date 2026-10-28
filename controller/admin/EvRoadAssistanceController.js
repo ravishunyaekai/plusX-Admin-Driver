@@ -730,10 +730,6 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         if (!isValid) {
             return resp.json({ status: 0, code: 422, message: errors });
         }
-        // Payment Information: Service Terms & Condition required when booking is completed (Yes).
-        if (!serviceTermsCondition) {
-            return resp.json({ status: 0, code: 422, message: ['Service Terms & Condition is required.'] });
-        }
     }
 
     const statusInput = toNullableText(booking_status) || (isBookingNotCompleted ? 'CNF' : '');
@@ -750,6 +746,10 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
     const cancellationRemarks = isCancelled ? toNullableText(cancellation_remarks) : null;
     if (isCancelled && !cancellationRemarks && !isBookingNotCompleted) {
         return resp.json({ status: 0, code: 422, message: ['cancellation_remarks is required when booking status is Cancelled.'] });
+    }
+    // Payment Information: required when is_booking_completed=Yes, or booking status is Completed (PU).
+    if ((!isBookingNotCompleted || isCompleted) && !serviceTermsCondition) {
+        return resp.json({ status: 0, code: 422, message: ['Service Terms & Condition is required.'] });
     }
     const cancelledBy = isCancelled ? 'Admin' : null;
     const { error: dateError, bookingDate, completedDate } = resolveOfflineDates(
@@ -982,10 +982,6 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         if (!isValid) {
             return resp.json({ status: 0, code: 422, message: errors });
         }
-        // Payment Information: Service Terms & Condition required when booking is completed (Yes).
-        if (!serviceTermsCondition && !existing.service_terms_condition) {
-            return resp.json({ status: 0, code: 422, message: ['Service Terms & Condition is required.'] });
-        }
     }
 
     const statusInput = toNullableText(booking_status) || (isBookingNotCompleted ? 'CNF' : '');
@@ -1008,6 +1004,10 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
     const cancellationRemarks = isCancelled ? toNullableText(cancellation_remarks) : null;
     if (isCancelled && !cancellationRemarks && !isBookingNotCompleted) {
         return resp.json({ status: 0, code: 422, message: ['cancellation_remarks is required when booking status is Cancelled.'] });
+    }
+    // Payment Information: required when is_booking_completed=Yes, or status is / becomes Completed (PU).
+    if ((!isBookingNotCompleted || isCompleted) && !serviceTermsCondition && !existing.service_terms_condition) {
+        return resp.json({ status: 0, code: 422, message: ['Service Terms & Condition is required.'] });
     }
     const cancelledBy = isCancelled ? 'Admin' : null;
     const { error: dateError, bookingDate, completedDate } = resolveOfflineDates(

@@ -102,7 +102,11 @@ SET b.terms_version_id = t.id,
     b.terms_accepted_at = b.created_at
 WHERE b.terms_version_id IS NULL;
 
+----------------------------------------------------------------------------
+ALTER TABLE `plusx-node`.`rsa_offline_booking`
+    ADD COLUMN service_terms_condition VARCHAR(255) NULL DEFAULT NULL AFTER proof_of_transaction;
 
+----------------------------------------------------------------------------
 
 CREATE TABLE `vendor_list` (
   `id` int NOT NULL AUTO_INCREMENT,

@@ -108,7 +108,7 @@ ALTER TABLE `plusx-node`.`rsa_offline_booking`
 
 ----------------------------------------------------------------------------
 
-CREATE TABLE `vendor_list` (
+CREATE TABLE `plusx-node`.`vendor_list` (
   `id` int NOT NULL AUTO_INCREMENT,
   `vendor_id` varchar(22) NOT NULL,
   `vendor_name` varchar(50) NOT NULL,
@@ -126,7 +126,7 @@ CREATE TABLE `vendor_list` (
 ) ENGINE=InnoDB AUTO_INCREMENT=0 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
  
  
-CREATE TABLE `vendor_customers` (
+CREATE TABLE `plusx-node`.`vendor_customers` (
     `id` int NOT NULL AUTO_INCREMENT,
     `customer_id` varchar(20) NOT NULL,
     `vendor_id` varchar(200) NOT NULL,

@@ -212,18 +212,18 @@ export const addCustomer = asyncHandler(async (req, resp) => {
         //     return resp.json({ status: 0, code: 422, message: ["Email already exists"] });
         // }
         const countryCode         = '+'+country_code;
-        const purchaseDate        = moment(purchase_date, 'DD-MM-YYYY').format("YYYY-MM-DD");
-        const podChargingValidity = moment(pod_charging_session_validity, 'DD-MM-YYYY').format("YYYY-MM-DD");
-        const rsaChargingValidity = moment(rsa_charging_session_validity, 'DD-MM-YYYY').format("YYYY-MM-DD");
+        const purchaseDate        = moment(purchase_date, 'YYYY-MM-DD');
+        const podChargingValidity = moment(pod_charging_session_validity, 'YYYY-MM-DD');
+        const rsaChargingValidity = moment(rsa_charging_session_validity, 'YYYY-MM-DD');
         
-        if (!purchaseDate.isValid() || !purchaseDate.isAfter(moment(), 'day')) {
-            return resp.json({ status: 0, code: 422, message: ['Purchase date must be greater than today'] });
-        }
+        // if (!purchaseDate.isValid() || !purchaseDate.isAfter(moment(), 'day')) {
+        //     return resp.json({ status: 0, code: 422, message: ['Purchase date must be greater than today'] });
+        // }
         if (!podChargingValidity.isValid() || !podChargingValidity.isAfter(moment(), 'day')) {    
-            return resp.json({ status: 0, code: 422, message: ['POD charging validity must be greater than today'] });
+            return resp.json({ status: 0, code: 422, message: ['POD charging session validity must be greater than today'] });
         }
         if (!rsaChargingValidity.isValid() || !rsaChargingValidity.isAfter(moment(), 'day')) {
-            return resp.json({ status: 0, code: 422, message: ['RSA charging validity must be greater than today'] });
+            return resp.json({ status: 0, code: 422, message: ['RSA charging session validity must be greater than today'] });
         }
 
         const packageData = await queryDB(`
@@ -237,8 +237,8 @@ export const addCustomer = asyncHandler(async (req, resp) => {
             'pod_charging_session_number', 'pod_charging_session_validity', 'rsa_charging_session_number',
             'rsa_charging_session_validity'
         ], [
-            'customer_id', vendor_id, customer_name, countryCode, mobile_number, customer_email, showroom_name, emirate, ev_make, ev_model, purchaseDate, packageData || null, 
-            pod_charging_session_number, podChargingValidity, rsa_charging_session_number, rsaChargingValidity
+            'customer_id', vendor_id, customer_name, countryCode, mobile_number, customer_email, showroom_name, emirate, ev_make, ev_model, purchaseDate.format("YYYY-MM-DD"), packageData || null, 
+            pod_charging_session_number, podChargingValidity.format("YYYY-MM-DD"), rsa_charging_session_number, rsaChargingValidity.format("YYYY-MM-DD")
         ]);
 
         if(insert.affectedRows == 0) return resp.json({status:0, message: "Failed to add Please try again after some time."});
@@ -285,19 +285,46 @@ const createMainUser = async (customer_name, customer_email, country_code, mobil
 
 export const customerList = async (req, resp) => {
     try {
-        const { page_no = 1, search_text = '' } = mergeParam(req);
+        const { page_no = 1, search_text = '', mobile_number = '' } = mergeParam(req);
 
         const limit  = 10;
         const page   = (isNaN(page_no) || page_no < 1) ? 1 : parseInt(page_no, 10);
         const offset = (page * limit) - limit;
 
-        let whereSql      = ``;
+        // let whereSql      = ``;
+        // const queryParams = [];
+        // if (search_text && String(search_text).trim()) {
+        //     const like = `%${String(search_text).trim()}%`;
+        //     whereSql = `WHERE ( vc.customer_name LIKE ? OR vc.showroom_name LIKE ? OR vc.mobile_number LIKE ?) `;
+        //     queryParams.push(like, like, like);
+        // }
+        // if(mobile_number) {
+        //     whereSql += ` AND vc. mobile_number = ?`;
+        //     queryParams.push(mobile_number);
+        // }
+
+        // New Logic 
+        let whereSql      = '';
         const queryParams = [];
+        const conditions  = [];
+
         if (search_text && String(search_text).trim()) {
             const like = `%${String(search_text).trim()}%`;
-            whereSql = `WHERE ( vc.customer_name LIKE ? OR vc.showroom_name LIKE ? OR vc.mobile_number LIKE ?) `;
+
+            conditions.push(`(
+                vc.customer_name LIKE ? OR vc.showroom_name LIKE ? OR vc.mobile_number LIKE ?
+            )`);
             queryParams.push(like, like, like);
         }
+        if (mobile_number && String(mobile_number).trim()) {
+            conditions.push(` vc.mobile_number = ? `);
+            queryParams.push(mobile_number);
+        }
+        if (conditions.length > 0) {
+            whereSql = `WHERE ${conditions.join(' AND ')}`;
+        }
+
+        console.log(whereSql);
         const [rows] = await db.execute(`
             SELECT SQL_CALC_FOUND_ROWS
                 vc.customer_id, vc.customer_name, CONCAT(vc.country_code, '-', vc.mobile_number) AS mobileNumber, vc.emirate, 
@@ -428,13 +455,13 @@ export const editCustomer = asyncHandler(async (req, resp) => {
         //     return resp.json({ status: 0, code: 422, message: ["Email already exists"] });
         // }
         const countryCode         = '+'+country_code;
-        const purchaseDate        = moment(purchase_date, 'DD-MM-YYYY').format("YYYY-MM-DD");
-        const podChargingValidity = moment(pod_charging_session_validity, 'DD-MM-YYYY').format("YYYY-MM-DD");
-        const rsaChargingValidity = moment(rsa_charging_session_validity, 'DD-MM-YYYY').format("YYYY-MM-DD");
+        const purchaseDate        = moment(purchase_date, 'YYYY-MM-DD'); //.format("YYYY-MM-DD");
+        const podChargingValidity = moment(pod_charging_session_validity, 'YYYY-MM-DD');
+        const rsaChargingValidity = moment(rsa_charging_session_validity, 'YYYY-MM-DD');
 
-        if (!purchaseDate.isValid() || !purchaseDate.isAfter(moment(), 'day')) {
-            return resp.json({ status: 0, code: 422, message: ['Purchase date must be greater than today'] });
-        }
+        // if (!purchaseDate.isValid() || !purchaseDate.isAfter(moment(), 'day')) {
+        //     return resp.json({ status: 0, code: 422, message: ['Purchase date must be greater than today'] });
+        // }
         if (!podChargingValidity.isValid() || !podChargingValidity.isAfter(moment(), 'day')) {    
             return resp.json({ status: 0, code: 422, message: ['POD charging validity must be greater than today'] });
         }
@@ -457,12 +484,12 @@ export const editCustomer = asyncHandler(async (req, resp) => {
             emirate, 
             ev_make, 
             ev_model, 
-            purchase_date : purchaseDate,
+            purchase_date : purchaseDate.format("YYYY-MM-DD"),
             package_data  : packageData || null,
             pod_charging_session_number,
-            pod_charging_session_validity : podChargingValidity,
+            pod_charging_session_validity : podChargingValidity.format("YYYY-MM-DD"),
             rsa_charging_session_number,
-            rsa_charging_session_validity : rsaChargingValidity
+            rsa_charging_session_validity : rsaChargingValidity.format("YYYY-MM-DD")
         } ;
         const update = await updateRecord('vendor_customers', updtObj, ['customer_id'], [ customer_id ] );
          

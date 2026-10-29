@@ -150,7 +150,7 @@ export const allVendorList = asyncHandler(async (req, resp) => {
         const [packageList] = await db.execute(`
             SELECT package_id as value, CONCAT(package_name, ' - ', ROUND(charging_capacity), "kW") as label 
             FROM portable_charger_charging_packages
-            WHERE is_deleted  = 0
+            WHERE status = 1 AND is_deleted = 0 AND order_id IS NULL
             ORDER BY package_name ASC`
         );
         return resp.json({status: 1, code: 200, message: '', data: list, packageList : packageList});

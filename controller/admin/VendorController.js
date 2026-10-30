@@ -155,7 +155,6 @@ export const allVendorList = asyncHandler(async (req, resp) => {
         );
         return resp.json({status: 1, code: 200, message: '', data: list, packageList : packageList});
     }
-    
 });
 
 export const communityAreaList = asyncHandler(async (req, resp) => {
@@ -195,22 +194,6 @@ export const addCustomer = asyncHandler(async (req, resp) => {
         });
         if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
 
-        // const [duplicateCheck] = await db.query(`
-        //     SELECT 'mobile' AS type FROM vendor_customers WHERE mobile_number = ?
-        //     UNION
-        //         SELECT 'email' AS type FROM vendor_customers WHERE customer_email = ? `, 
-        //     [ mobile_number, customer_email ]
-        // );
-        // const types = duplicateCheck.map(row => row.type);
-        // if (types.includes('mobile') && types.includes('email')) {
-        //     return resp.json({ status: 0, code: 422, message: ["Mobile number and Email already exist"] });
-            
-        // } else if (types.includes('mobile')) {
-        //     return resp.json({ status: 0, code: 422, message: ["Mobile number already exists"] });
-            
-        // } else if (types.includes('email')) {
-        //     return resp.json({ status: 0, code: 422, message: ["Email already exists"] });
-        // }
         const countryCode         = '+'+country_code;
         const purchaseDate        = moment(purchase_date, 'YYYY-MM-DD');
         const podChargingValidity = moment(pod_charging_session_validity, 'YYYY-MM-DD');
@@ -219,10 +202,14 @@ export const addCustomer = asyncHandler(async (req, resp) => {
         // if (!purchaseDate.isValid() || !purchaseDate.isAfter(moment(), 'day')) {
         //     return resp.json({ status: 0, code: 422, message: ['Purchase date must be greater than today'] });
         // }
-        if (!podChargingValidity.isValid() || !podChargingValidity.isAfter(moment(), 'day')) {    
+        if ( pod_charging_session_number > 0 && 
+            (!podChargingValidity.isValid() || !podChargingValidity.isAfter(moment(), 'day') )
+        ) {    
             return resp.json({ status: 0, code: 422, message: ['POD charging session validity must be greater than today'] });
         }
-        if (!rsaChargingValidity.isValid() || !rsaChargingValidity.isAfter(moment(), 'day')) {
+        if ( rsa_charging_session_number > 0 && 
+            (!rsaChargingValidity.isValid() || !rsaChargingValidity.isAfter(moment(), 'day')) 
+        ) {
             return resp.json({ status: 0, code: 422, message: ['RSA charging session validity must be greater than today'] });
         }
 
@@ -459,16 +446,16 @@ export const editCustomer = asyncHandler(async (req, resp) => {
         const podChargingValidity = moment(pod_charging_session_validity, 'YYYY-MM-DD');
         const rsaChargingValidity = moment(rsa_charging_session_validity, 'YYYY-MM-DD');
 
-        // if (!purchaseDate.isValid() || !purchaseDate.isAfter(moment(), 'day')) {
-        //     return resp.json({ status: 0, code: 422, message: ['Purchase date must be greater than today'] });
-        // }
-        if (!podChargingValidity.isValid() || !podChargingValidity.isAfter(moment(), 'day')) {    
-            return resp.json({ status: 0, code: 422, message: ['POD charging validity must be greater than today'] });
+        if ( pod_charging_session_number > 0 && 
+            (!podChargingValidity.isValid() || !podChargingValidity.isAfter(moment(), 'day') )
+        ) {
+            return resp.json({ status: 0, code: 422, message: ['POD charging session validity must be greater than today'] });
         }
-        if (!rsaChargingValidity.isValid() || !rsaChargingValidity.isAfter(moment(), 'day')) {
-            return resp.json({ status: 0, code: 422, message: ['RSA charging validity must be greater than today'] });
+        if ( rsa_charging_session_number > 0 && 
+            (!rsaChargingValidity.isValid() || !rsaChargingValidity.isAfter(moment(), 'day')) 
+        ) {
+            return resp.json({ status: 0, code: 422, message: ['RSA charging session validity must be greater than today'] });
         }
-
         const packageData = await queryDB(`
             SELECT package_id, package_name, charging_capacity, price, price_per_unit, service_fee
             FROM portable_charger_charging_packages

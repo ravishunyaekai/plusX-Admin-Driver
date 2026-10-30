@@ -121,47 +121,20 @@ export const riderList = async (req, resp) => {
     page_no = (isNaN(page_no) || page_no < 1)  ? 1 : parseInt(page_no, 10);
     try {
         const params = {
-            tableName: 'riders',
-            columns: `rider_id, rider_name, rider_email, country_code, rider_mobile, emirates, profile_img, vehicle_type, status, ${formatDateTimeInQuery(['created_at', 'updated_at'])}`,
-            sortColumn: 'id',
-            sortOrder : "DESC",
-            page_no : page_no,
-            limit: 10,
-            liveSearchFields: ['rider_name', 'rider_id', 'rider_email', 'rider_mobile',],
-            liveSearchTexts: [search_text, search_text, search_text, search_text,],
-            whereField: [],
-            whereValue: [],
-            whereOperator: []
+            tableName : 'riders',
+            columns   : `rider_id, rider_name, rider_email, country_code, rider_mobile, emirates, profile_img, vehicle_type, status, ${formatDateTimeInQuery(['created_at', 'updated_at'])}`,
+            sortColumn       : 'id',
+            sortOrder        : "DESC",
+            page_no          : page_no,
+            limit            : 10,
+            liveSearchFields : ['rider_name', 'rider_id', 'rider_email', 'rider_mobile',],
+            liveSearchTexts  : [search_text, search_text, search_text, search_text,],
+            whereField       : ['added_from'],
+            whereValue       : [['Android', 'iOS', 'Admin']],
+            whereOperator    : ['IN']
         };
-        // Only show riders who signed up / logged in from the app (hide Rsa Offline / CI Offline auto-creates).
-        if (!addedFrom) {
-            params.whereField.push('added_from');
-            params.whereValue.push(['Android', 'iOS']);
-            params.whereOperator.push('IN');
-        }!addedFrom
         if (start_date && end_date) {
             
-            // const startToday = new Date(start_date);
-            // const startFormattedDate = `${startToday.getFullYear()}-${(startToday.getMonth() + 1).toString()
-            //     .padStart(2, '0')}-${startToday.getDate().toString().padStart(2, '0')}`;
-                        
-            // const givenStartDateTime    = startFormattedDate+' 00:00:01';
-            // const modifiedStartDateTime = moment(givenStartDateTime).subtract(4, 'hours');
-            // const start        = modifiedStartDateTime.format('YYYY-MM-DD HH:mm:ss')
-            
-            // if(modifiedStartDateTime.format('YYYY') != '1999'){
-            
-            //     const endToday = new Date(end_date);
-            //     const formattedEndDate = `${endToday.getFullYear()}-${(endToday.getMonth() + 1).toString()
-            //         .padStart(2, '0')}-${endToday.getDate().toString().padStart(2, '0')}`;
-            //     const end = formattedEndDate+' 19:59:59';
-    
-            //     params.whereField.push('created_at', 'created_at');
-            //     params.whereValue.push(start, end);
-            //     params.whereOperator.push('>=', '<=');
-            // }
-
-            //optimized code
             const start = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
             const end = moment(end_date, "YYYY-MM-DD").format("YYYY-MM-DD") + " 19:59:59";
 
@@ -183,10 +156,8 @@ export const riderList = async (req, resp) => {
         const result = await getPaginatedData(params);
         const [emiratesResult] = await db.query(`
             SELECT DISTINCT emirates FROM riders
-            WHERE emirates IS NOT NULL AND emirates != ''
-              AND added_from IN ('Android', 'iOS')
-        `);
-        
+            WHERE emirates IS NOT NULL AND emirates != '' AND added_from IN ('Android', 'iOS') `
+        );
         return resp.json({
             status     : 1,
             code       : 200,

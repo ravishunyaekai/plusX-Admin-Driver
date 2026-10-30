@@ -14,18 +14,22 @@ const RSA_OFFLINE_DEVICE_NAME = 'Admin Offline';
 const RSA_OFFLINE_ADDED_FROM  = 'Rsa Offline'; // future: 'CI Offline' for charger installation
 
 const RSA_OFFLINE_STATUS_MAP = {
-    'CNF'       : 'CNF',
-    'CONFIRMED' : 'CNF',
-    'PU'        : 'PU',
-    'COMPLETED' : 'PU',
-    'C'         : 'C',
-    'CANCELLED' : 'C',
-    'CANCELED'  : 'C',
+    'CNF'            : 'CNF',
+    'CONFIRMED'      : 'CNF',
+    'NC'             : 'NC',
+    'NOT CONVERTED'  : 'NC',
+    'NOTCONVERTED'   : 'NC',
+    'NOT_CONVERTED'  : 'NC',
+    'PU'             : 'PU',
+    'COMPLETED'      : 'PU',
+    'C'              : 'C',
+    'CANCELLED'      : 'C',
+    'CANCELED'       : 'C',
 };
 
-// Stored booking statuses: CNF confirmed, PU completed, C cancelled.
+// Stored booking statuses: CNF confirmed, NC not converted (incomplete lead), PU completed, C cancelled.
 const RSA_OFFLINE_STATUS_ALLOWED_MSG =
-    'Invalid booking status. Allowed values are Confirmed (CNF), Completed (PU), or Cancelled (C).';
+    'Invalid booking status. Allowed values are Confirmed (CNF), Not Converted (NC), Completed (PU), or Cancelled (C).';
 
 const RSA_OFFLINE_BOOKING_TABLE = 'rsa_offline_booking';
 const RSA_OFFLINE_HISTORY_TABLE = 'rsa_offline_order_history';
@@ -80,8 +84,10 @@ const sendOfflineBookingWhatsApp = async ({
 
 const toYesNo = (value) => ([true, 1, '1', 'true', 'yes', 'Yes', 'YES'].includes(value) ? 'Yes' : 'No');
 
-const RSA_OFFLINE_NOT_COMPLETED_STATUS_MSG =
-    'Booking status cannot be Completed when booking is not completed. Allowed values are Confirmed (CNF) or Cancelled (C).';
+const mapOfflineBookingStatus = (booking_status) => {
+    const normalized = String(booking_status ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return normalized ? RSA_OFFLINE_STATUS_MAP[normalized] : undefined;
+};
 
 // "Is booking completed?" popup value — returns 'Yes' / 'No', or null when not sent / unrecognised.
 const parseBookingCompletedFlag = (value) => {
@@ -122,7 +128,7 @@ const parseOfflineDate = (value) => {
 };
 
 const resolveOfflineDates = (booking_date, booking_completed_date, isCompleted) => {
-    // booking_completed_date only applies to Completed (PU); Confirmed / Cancelled store null.
+    // booking_completed_date only applies to Completed (PU); Confirmed / Not Converted / Cancelled store null.
     const bookingDate = parseOfflineDate(booking_date);
     const completedDate = isCompleted ? parseOfflineDate(booking_completed_date) : null;
 
@@ -562,7 +568,7 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
     const whereOperators = [];
 
     if (status) {
-        const orderStatus = RSA_OFFLINE_STATUS_MAP[String(status).trim().toUpperCase()];
+        const orderStatus = mapOfflineBookingStatus(status);
         if (orderStatus) {
             whereFields.push('order_status');
             whereValues.push(orderStatus);
@@ -732,13 +738,17 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         }
     }
 
-    const statusInput = toNullableText(booking_status) || (isBookingNotCompleted ? 'CNF' : '');
-    const orderStatus = RSA_OFFLINE_STATUS_MAP[statusInput.toUpperCase()];
+    const statusInput = toNullableText(booking_status) || (isBookingNotCompleted ? 'NC' : '');
+    const orderStatus = mapOfflineBookingStatus(statusInput);
     if (!orderStatus) {
         return resp.json({ status: 0, code: 422, message: [RSA_OFFLINE_STATUS_ALLOWED_MSG] });
     }
-    if (isBookingNotCompleted && orderStatus === 'PU') {
-        return resp.json({ status: 0, code: 422, message: [RSA_OFFLINE_NOT_COMPLETED_STATUS_MSG] });
+    if (!isBookingNotCompleted && orderStatus === 'NC') {
+        return resp.json({
+            status  : 0,
+            code    : 422,
+            message : ['Not Converted (NC) is only allowed when booking is not completed. Use Confirmed (CNF), Completed (PU), or Cancelled (C).'],
+        });
     }
 // PU applies completion fields; C requires cancellation remarks unless the booking is not completed.
     const isCompleted = orderStatus === 'PU';
@@ -769,7 +779,7 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
     try {
         connection = await startTransaction();
 
-        // rsa_id / booking_completed_by optional for Cancelled and Confirmed.
+        // rsa_id / booking_completed_by optional for Cancelled, Confirmed, and Not Converted.
         const driverInfo = await resolveOfflineRsaDriver(rsa_id, driver_name, booking_completed_by, connection);
         if (driverInfo === null) {
             await rollbackTransaction(connection);
@@ -984,8 +994,8 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         }
     }
 
-    const statusInput = toNullableText(booking_status) || (isBookingNotCompleted ? 'CNF' : '');
-    const orderStatus = RSA_OFFLINE_STATUS_MAP[statusInput.toUpperCase()];
+    const statusInput = toNullableText(booking_status) || (isBookingNotCompleted ? 'NC' : '');
+    const orderStatus = mapOfflineBookingStatus(statusInput);
     if (!orderStatus) {
         return resp.json({
             status  : 0,
@@ -993,8 +1003,12 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             message : [RSA_OFFLINE_STATUS_ALLOWED_MSG],
         });
     }
-    if (isBookingNotCompleted && orderStatus === 'PU') {
-        return resp.json({ status: 0, code: 422, message: [RSA_OFFLINE_NOT_COMPLETED_STATUS_MSG] });
+    if (!isBookingNotCompleted && orderStatus === 'NC') {
+        return resp.json({
+            status  : 0,
+            code    : 422,
+            message : ['Not Converted (NC) is only allowed when booking is not completed. Use Confirmed (CNF), Completed (PU), or Cancelled (C).'],
+        });
     }
 
     const wasCompleted = existing.order_status === 'PU';
@@ -1029,7 +1043,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
     try {
         connection = await startTransaction();
 
-        // rsa_id / booking_completed_by optional for Cancelled and Confirmed.
+        // rsa_id / booking_completed_by optional for Cancelled, Confirmed, and Not Converted.
         const driverInfo = await resolveOfflineRsaDriver(rsa_id, driver_name, booking_completed_by, connection);
         if (driverInfo === null) {
             await rollbackTransaction(connection);

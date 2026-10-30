@@ -174,8 +174,102 @@ const findOrCreateRiderForResident = async ({
     }
 };
 
+const RESIDENT_VEHICLE_REQUIRED_FIELDS = [
+    'vehicle_type',
+    'vehicle_make',
+    'vehicle_model',
+    'vehicle_specification',
+    'vehicle_code',
+    'vehicle_number',
+];
+
+const parseJsonArrayInput = (input) => {
+    if (Array.isArray(input)) return input;
+    if (typeof input === 'string' && input.trim()) {
+        try {
+            const parsed = JSON.parse(input);
+            if (Array.isArray(parsed)) return parsed;
+        } catch {
+            return null;
+        }
+    }
+    return null;
+};
+
+const normalizeResidentVehicleInput = (raw) => {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const vehicle_emirates = raw.vehicle_emirates ?? raw.emirates ?? null;
+
+    return {
+        vehicle_id              : raw.vehicle_id ? String(raw.vehicle_id).trim() : null,
+        vehicle_type            : raw.vehicle_type != null ? String(raw.vehicle_type).trim() : '',
+        vehicle_make            : raw.vehicle_make != null ? String(raw.vehicle_make).trim() : '',
+        vehicle_model           : raw.vehicle_model != null ? String(raw.vehicle_model).trim() : '',
+        vehicle_specification   : raw.vehicle_specification != null ? String(raw.vehicle_specification).trim() : '',
+        vehicle_emirates        : vehicle_emirates != null ? String(vehicle_emirates).trim() : '',
+        vehicle_code            : raw.vehicle_code != null ? String(raw.vehicle_code).trim() : '',
+        vehicle_number          : raw.vehicle_number != null ? String(raw.vehicle_number).trim() : '',
+        default_vehicle         : raw.default_vehicle === 1 || raw.default_vehicle === '1' || raw.default_vehicle === true,
+    };
+};
+
 /**
- * Add vehicle for rider; marks it as default vehicle.
+ * Accept `vehicles` array (or JSON string) or legacy flat vehicle_* fields on the body.
+ */
+const parseResidentVehiclesFromBody = (body) => {
+    const parsedList = parseJsonArrayInput(body?.vehicles);
+    if (parsedList) {
+        return parsedList.map(normalizeResidentVehicleInput).filter(Boolean);
+    }
+
+    if (body?.vehicles === undefined || body?.vehicles === null || body?.vehicles === '') {
+        const legacy = normalizeResidentVehicleInput(body);
+        if (legacy && RESIDENT_VEHICLE_REQUIRED_FIELDS.some((field) => legacy[field])) {
+            return [legacy];
+        }
+        return [];
+    }
+
+    return [];
+};
+
+const validateResidentVehicles = (vehicles) => {
+    if (!vehicles.length) {
+        return { valid: false, message: ['At least one vehicle is required.'] };
+    }
+
+    const messages = [];
+    vehicles.forEach((vehicle, index) => {
+        const label = `Vehicle ${index + 1}`;
+        RESIDENT_VEHICLE_REQUIRED_FIELDS.forEach((field) => {
+            if (!vehicle[field]) {
+                messages.push(`${label}: ${field.replace(/_/g, ' ')} is required.`);
+            }
+        });
+        if (vehicle.vehicle_specification && !VEHICLE_SPECIFICATION_OPTIONS.includes(vehicle.vehicle_specification)) {
+            messages.push(`${label}: vehicle specification must be GCC or Non-GCC.`);
+        }
+        if (!vehicle.vehicle_emirates) {
+            messages.push(`${label}: vehicle emirates is required.`);
+        }
+    });
+
+    if (messages.length) {
+        return { valid: false, message: messages };
+    }
+
+    return { valid: true, vehicles };
+};
+
+const pickDefaultVehicleIndex = (vehicles) => {
+    const explicitIndex = vehicles.findIndex((vehicle) => vehicle.default_vehicle);
+    if (explicitIndex >= 0) return explicitIndex;
+    return 0;
+};
+
+/**
+ * Add vehicle for rider.
  * Skips insert when this rider already has the same plate.
  */
 const addRiderVehicleForResident = async ({
@@ -187,6 +281,7 @@ const addRiderVehicleForResident = async ({
     vehicle_emirates,
     vehicle_code,
     vehicle_number,
+    setAsDefault = false,
 }) => {
     const emiratesCode = await resolveVehicleEmiratesCode(vehicle_emirates);
 
@@ -198,13 +293,19 @@ const addRiderVehicleForResident = async ({
     );
 
     if (existingVehicle?.vehicle_id) {
+        if (setAsDefault) {
+            await updateRecord('riders_vehicles', { default_vehicle: 0 }, ['rider_id'], [rider_id]);
+            await updateRecord('riders_vehicles', { default_vehicle: 1 }, ['vehicle_id'], [existingVehicle.vehicle_id]);
+        }
         return {
             insertId : existingVehicle.id,
             data     : { vehicle_id: existingVehicle.vehicle_id },
         };
     }
 
-    await updateRecord('riders_vehicles', { default_vehicle: 0 }, ['rider_id'], [rider_id]);
+    if (setAsDefault) {
+        await updateRecord('riders_vehicles', { default_vehicle: 0 }, ['rider_id'], [rider_id]);
+    }
 
     return insertRecord('riders_vehicles', [
         'vehicle_id', 'rider_id', 'vehicle_type', 'vehicle_make', 'vehicle_model',
@@ -219,8 +320,146 @@ const addRiderVehicleForResident = async ({
         emiratesCode,
         vehicle_code,
         vehicle_number,
-        1,
+        setAsDefault ? 1 : 0,
     ]);
+};
+
+const updateRiderVehicleForResident = async ({
+    rider_id,
+    vehicle_id,
+    vehicle_type,
+    vehicle_make,
+    vehicle_model,
+    vehicle_specification,
+    vehicle_emirates,
+    vehicle_code,
+    vehicle_number,
+    setAsDefault = false,
+}) => {
+    const owned = await queryDB(
+        `SELECT vehicle_id FROM riders_vehicles WHERE vehicle_id = ? AND rider_id = ? LIMIT 1`,
+        [vehicle_id, rider_id]
+    );
+    if (!owned?.vehicle_id) {
+        return { ok: false, message: [`Vehicle ${vehicle_id} not found for this resident.`] };
+    }
+
+    const emiratesCode = await resolveVehicleEmiratesCode(vehicle_emirates);
+
+    const plateConflict = await queryDB(
+        `SELECT vehicle_id FROM riders_vehicles
+         WHERE rider_id = ? AND emirates = ? AND vehicle_code = ? AND vehicle_number = ? AND vehicle_id != ?
+         LIMIT 1`,
+        [rider_id, emiratesCode, vehicle_code, vehicle_number, vehicle_id]
+    );
+    if (plateConflict?.vehicle_id) {
+        return { ok: false, message: ['Another vehicle with the same plate already exists for this resident.'] };
+    }
+
+    if (setAsDefault) {
+        await updateRecord('riders_vehicles', { default_vehicle: 0 }, ['rider_id'], [rider_id]);
+    }
+
+    await updateRecord('riders_vehicles', {
+        vehicle_type,
+        vehicle_make,
+        vehicle_model,
+        vehicle_specification,
+        emirates        : emiratesCode,
+        vehicle_code,
+        vehicle_number,
+        default_vehicle : setAsDefault ? 1 : 0,
+    }, ['vehicle_id'], [vehicle_id]);
+
+    return { ok: true, vehicle_id };
+};
+
+/**
+ * Delete rider vehicles not present in the submitted edit payload.
+ */
+const removeRiderVehiclesNotInList = async ({ rider_id, keepVehicleIds }) => {
+    const ids = keepVehicleIds.filter(Boolean);
+    if (!ids.length) {
+        await db.execute('DELETE FROM riders_vehicles WHERE rider_id = ?', [rider_id]);
+        return;
+    }
+
+    const placeholders = ids.map(() => '?').join(', ');
+    await db.execute(
+        `DELETE FROM riders_vehicles WHERE rider_id = ? AND vehicle_id NOT IN (${placeholders})`,
+        [rider_id, ...ids]
+    );
+};
+
+const addOrUpdateRiderVehiclesForResident = async ({ rider_id, vehicles, removeMissing = false }) => {
+    const defaultIndex = pickDefaultVehicleIndex(vehicles);
+    const vehicleIds = [];
+
+    if (removeMissing) {
+        const keepVehicleIds = vehicles.map((vehicle) => vehicle.vehicle_id).filter(Boolean);
+        try {
+            await removeRiderVehiclesNotInList({ rider_id, keepVehicleIds });
+        } catch (error) {
+            console.error('[community-resident-edit] Failed to remove vehicle:', error);
+            return {
+                ok      : false,
+                message : ['Unable to remove vehicle. It may be linked to existing bookings or orders.'],
+            };
+        }
+    }
+
+    for (let index = 0; index < vehicles.length; index++) {
+        const vehicle = vehicles[index];
+        const setAsDefault = index === defaultIndex;
+        const payload = {
+            rider_id,
+            vehicle_type          : vehicle.vehicle_type,
+            vehicle_make          : vehicle.vehicle_make,
+            vehicle_model         : vehicle.vehicle_model,
+            vehicle_specification : vehicle.vehicle_specification,
+            vehicle_emirates      : vehicle.vehicle_emirates,
+            vehicle_code          : vehicle.vehicle_code,
+            vehicle_number        : vehicle.vehicle_number,
+            setAsDefault,
+        };
+
+        if (vehicle.vehicle_id) {
+            const updated = await updateRiderVehicleForResident({
+                vehicle_id : vehicle.vehicle_id,
+                ...payload,
+            });
+            if (!updated.ok) return updated;
+            vehicleIds.push(updated.vehicle_id);
+            continue;
+        }
+
+        const inserted = await addRiderVehicleForResident(payload);
+        if (!inserted?.insertId) {
+            return { ok: false, message: ['Failed to save vehicle details. Please try again.'] };
+        }
+        vehicleIds.push(inserted.data?.vehicle_id);
+    }
+
+    return { ok: true, vehicle_ids: vehicleIds.filter(Boolean) };
+};
+
+const getRiderVehiclesForMobile = async (mobile) => {
+    const rider = await queryDB(
+        `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
+        [mobile]
+    );
+    if (!rider?.rider_id) return { rider_id: null, residentVehicles: [] };
+
+    const [vehicles] = await db.execute(`
+        SELECT
+            vehicle_id, vehicle_type, vehicle_make, vehicle_model, vehicle_specification,
+            emirates, vehicle_code, vehicle_number, default_vehicle
+        FROM riders_vehicles
+        WHERE rider_id = ?
+        ORDER BY default_vehicle DESC, id DESC
+    `, [rider.rider_id]);
+
+    return { rider_id: rider.rider_id, residentVehicles: vehicles };
 };
 
 const parseCommunityIds = (input) => {
@@ -985,7 +1224,10 @@ export const residentRiderLookup = asyncHandler(async (req, resp) => {
         code    : 200,
         message : ['Rider found.'],
         found   : 1,
-        data    : buildResidentRiderLookupData(rider),
+        data    : {
+            ...buildResidentRiderLookupData(rider),
+            ...(await getRiderVehiclesForMobile(rider.rider_mobile)),
+        },
     });
 });
 
@@ -994,11 +1236,11 @@ export const addResidentMulti = asyncHandler(async (req, resp) => {
         const {
             resident_name, mobile_number, country_code = '+971', resident_email, community_ids,
             address, emirates, monthly_session_allocation, alloted_time, kwh_allocated, per_kwh_charge, extra_charge,
-            vehicle_type, vehicle_make, vehicle_model, vehicle_specification,
-            vehicle_emirates, vehicle_code, vehicle_number,
         } = req.body;
 
         const parsedCommunityIds = parseCommunityIds(community_ids);
+        const parsedVehicles = parseResidentVehiclesFromBody(req.body);
+        const vehicleCheck = validateResidentVehicles(parsedVehicles);
 
         const { isValid, errors } = validateFields(req.body, {
             resident_name              : ["required"],
@@ -1011,24 +1253,10 @@ export const addResidentMulti = asyncHandler(async (req, resp) => {
             kwh_allocated              : ["required"],
             per_kwh_charge             : ["required"],
             extra_charge               : ["required"],
-            vehicle_type               : ["required"],
-            vehicle_make               : ["required"],
-            vehicle_model              : ["required"],
-            vehicle_specification      : ["required"],
-            vehicle_emirates           : ["required"],
-            vehicle_code               : ["required"],
-            vehicle_number             : ["required"],
         });
 
         if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
-
-        if (!VEHICLE_SPECIFICATION_OPTIONS.includes(vehicle_specification)) {
-            return resp.json({
-                status  : 0,
-                code    : 422,
-                message : ['Vehicle specification must be GCC or Non-GCC.'],
-            });
-        }
+        if (!vehicleCheck.valid) return resp.json({ status: 0, code: 422, message: vehicleCheck.message });
 
         const communityCheck = await validateCommunityIds(parsedCommunityIds);
         if (!communityCheck.valid) {
@@ -1087,19 +1315,13 @@ export const addResidentMulti = asyncHandler(async (req, resp) => {
         await updateRecord('community_resident', { resident_id }, ['id'], [insert.insertId]);
         await syncResidentCommunities(resident_id, communityCheck.communityIds);
 
-        const vehicleInsert = await addRiderVehicleForResident({
-            rider_id              : riderResult.rider_id,
-            vehicle_type,
-            vehicle_make,
-            vehicle_model,
-            vehicle_specification,
-            vehicle_emirates,
-            vehicle_code,
-            vehicle_number,
+        const vehicleSync = await addOrUpdateRiderVehiclesForResident({
+            rider_id : riderResult.rider_id,
+            vehicles : vehicleCheck.vehicles,
         });
 
-        if (!vehicleInsert?.insertId) {
-            return resp.json({ status: 0, message: "Resident added but failed to add vehicle. Please try again." });
+        if (!vehicleSync.ok) {
+            return resp.json({ status: 0, code: 422, message: vehicleSync.message });
         }
 
         // const { whatsapp_status, whatsapp_campaign_id } = await sendCommunityResidentWhatsApp({
@@ -1119,7 +1341,7 @@ export const addResidentMulti = asyncHandler(async (req, resp) => {
             data    : {
                 resident_id,
                 rider_id    : riderResult.rider_id,
-                vehicle_id  : vehicleInsert.data?.vehicle_id,
+                vehicle_ids : vehicleSync.vehicle_ids,
                 communities,
                 // whatsapp_status,
                 // whatsapp_campaign_id,
@@ -1293,23 +1515,7 @@ export const residentDetailMulti = asyncHandler(async (req, resp) => {
 
     const communities = await getCommunitiesForResident(resident_id);
 
-    const rider = await queryDB(
-        `SELECT rider_id FROM riders WHERE rider_mobile = ? LIMIT 1`,
-        [resident.resident_mobile]
-    );
-
-    let residentVehicles = [];
-    if (rider?.rider_id) {
-        const [vehicles] = await db.execute(`
-            SELECT
-                vehicle_id, vehicle_type, vehicle_make, vehicle_model, vehicle_specification,
-                emirates, vehicle_code, vehicle_number, default_vehicle
-            FROM riders_vehicles
-            WHERE rider_id = ?
-            ORDER BY default_vehicle DESC, id DESC
-        `, [rider.rider_id]);
-        residentVehicles = vehicles;
-    }
+    const { rider_id, residentVehicles } = await getRiderVehiclesForMobile(resident.resident_mobile);
 
     return resp.json({
         status  : 1,
@@ -1318,7 +1524,7 @@ export const residentDetailMulti = asyncHandler(async (req, resp) => {
         data    : {
             ...resident,
             communities,
-            rider_id          : rider?.rider_id || null,
+            rider_id          : rider_id || null,
             residentVehicles,
         },
     });
@@ -1368,12 +1574,27 @@ export const editResidentMulti = asyncHandler(async (req, resp) => {
         });
         if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
 
+        const shouldSyncVehicles = Object.prototype.hasOwnProperty.call(req.body, 'vehicles')
+            || RESIDENT_VEHICLE_REQUIRED_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(req.body, field));
+
+        let vehicleCheck = { valid: true, vehicles: [] };
+        if (shouldSyncVehicles) {
+            const parsedVehicles = parseResidentVehiclesFromBody(req.body);
+            vehicleCheck = validateResidentVehicles(parsedVehicles);
+            if (!vehicleCheck.valid) {
+                return resp.json({ status: 0, code: 422, message: vehicleCheck.message });
+            }
+        }
+
         const communityCheck = await validateCommunityIds(parsedCommunityIds);
         if (!communityCheck.valid) {
             return resp.json({ status: 0, code: 422, message: communityCheck.message });
         }
 
-        const existing = await queryDB('SELECT resident_id FROM community_resident WHERE resident_id = ?', [resident_id]);
+        const existing = await queryDB(
+            'SELECT resident_id, resident_mobile, emirates FROM community_resident WHERE resident_id = ?',
+            [resident_id]
+        );
         if (!existing) return resp.json({ status: 0, code: 404, message: 'Resident not found.' });
 
         const [duplicateCheck] = await db.query(`
@@ -1413,13 +1634,52 @@ export const editResidentMulti = asyncHandler(async (req, resp) => {
             await syncResidentCommunities(resident_id, communityCheck.communityIds);
         }
 
+        let vehicle_ids;
+        if (shouldSyncVehicles && vehicleCheck.vehicles.length) {
+            const riderResult = await findOrCreateRiderForResident({
+                mobile        : mobile_number,
+                country_code  : country_code || '+971',
+                resident_name,
+                email         : resident_email,
+                emirates      : existing.emirates ?? null,
+            });
+
+            if (riderResult.mobileConflict && riderResult.emailConflict) {
+                return resp.json({ status: 0, code: 422, message: ["Mobile number and Email already exist"] });
+            }
+            if (riderResult.mobileConflict) {
+                return resp.json({ status: 0, code: 422, message: ["Mobile number already exists"] });
+            }
+            if (riderResult.emailConflict) {
+                return resp.json({ status: 0, code: 422, message: [RIDER_EMAIL_CONFLICT_MSG] });
+            }
+
+            const vehicleSync = await addOrUpdateRiderVehiclesForResident({
+                rider_id       : riderResult.rider_id,
+                vehicles       : vehicleCheck.vehicles,
+                removeMissing  : true,
+            });
+
+            if (!vehicleSync.ok) {
+                return resp.json({ status: 0, code: 422, message: vehicleSync.message });
+            }
+            vehicle_ids = vehicleSync.vehicle_ids;
+        }
+
         const communities = await getCommunitiesForResident(resident_id);
+        const { rider_id, residentVehicles } = await getRiderVehiclesForMobile(mobile_number);
 
         return resp.json({
             status  : update.affectedRows > 0 ? 1 : 0,
             code    : 200,
             message : update.affectedRows > 0 ? "Resident updated successfully!" : "Failed to update, Please Try Again!",
-            data    : { resident_id, communities },
+            data    : {
+                resident_id,
+                communities,
+                rider_id          : rider_id || null,
+                vehicle_ids,
+                residentVehicles,
+            },
         });
 
     } catch (error) {

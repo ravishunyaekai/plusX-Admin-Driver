@@ -31,6 +31,29 @@ const RSA_OFFLINE_STATUS_MAP = {
 const RSA_OFFLINE_STATUS_ALLOWED_MSG =
     'Invalid booking status. Allowed values are Confirmed (CNF), Not Converted (NC), Completed (PU), or Cancelled (C).';
 
+const RSA_OFFLINE_NON_CONVERSION_REASONS = [
+    'Price Concern',
+    'Service Not Available',
+    'Customer Not Interested',
+    'Customer Unreachable',
+    'Customer Will Book Later',
+    'B2B Leads',
+    'Other',
+];
+
+const RSA_OFFLINE_NON_CONVERSION_REASON_MSG =
+    `Invalid reason_for_non_conversion. Allowed values are: ${RSA_OFFLINE_NON_CONVERSION_REASONS.join(', ')}.`;
+
+const normalizeNonConversionReason = (value) => {
+    const trimmed = String(value ?? '').trim();
+    if (!trimmed) return null;
+    const normalized = trimmed.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+    const match = RSA_OFFLINE_NON_CONVERSION_REASONS.find(
+        (reason) => reason.toLowerCase() === normalized
+    );
+    return match || null;
+};
+
 const RSA_OFFLINE_BOOKING_TABLE = 'rsa_offline_booking';
 const RSA_OFFLINE_HISTORY_TABLE = 'rsa_offline_order_history';
 const RSA_OFFLINE_INVOICE_TABLE = 'rsa_offline_invoice';
@@ -100,6 +123,33 @@ const parseBookingCompletedFlag = (value) => {
 const toNullableText = (value) => {
     const trimmed = String(value ?? '').trim();
     return trimmed === '' ? null : trimmed;
+};
+
+// Lead Details apply only when booking is not completed and status is Not Converted (NC).
+const resolveOfflineLeadDetails = ({
+    orderStatus,
+    isBookingNotCompleted,
+    reason_for_non_conversion,
+    lead_remarks,
+}) => {
+    if (!isBookingNotCompleted || orderStatus !== 'NC') {
+        return { reason_for_non_conversion: null, lead_remarks: null };
+    }
+
+    const reason = normalizeNonConversionReason(reason_for_non_conversion);
+    if (!reason) {
+        const missing = !String(reason_for_non_conversion ?? '').trim();
+        return {
+            error: missing
+                ? 'reason_for_non_conversion is required when lead status is Not Converted.'
+                : RSA_OFFLINE_NON_CONVERSION_REASON_MSG,
+        };
+    }
+
+    return {
+        reason_for_non_conversion: reason,
+        lead_remarks: toNullableText(lead_remarks),
+    };
 };
 
 const buildVehicleData = (vehicle_make, vehicle_model) =>
@@ -485,6 +535,7 @@ export const offlineRSABookingData = asyncHandler(async (req, resp) => {
                 b.price, b.booking_price, b.mode_of_payment, b.rsa_id, b.proof_of_transaction,
                 b.service_terms_condition,
                 b.cancellation_remarks, b.cancelled_by,
+                b.reason_for_non_conversion, b.lead_remarks,
                 (SELECT h.driver_name FROM ${RSA_OFFLINE_HISTORY_TABLE} AS h
                     WHERE h.order_id = b.request_id ORDER BY h.id DESC LIMIT 1) AS driver_name,
                 r.rsa_name,
@@ -528,6 +579,9 @@ export const offlineRSABookingData = asyncHandler(async (req, resp) => {
             ? `${process.env.DIR_UPLOADS}${RSA_OFFLINE_PROOF_FOLDER}/${booking.service_terms_condition}`
             : null;
         booking.booking_completed_by     = booking.driver_name;
+        if (booking.is_booking_completed === 'No') {
+            booking.lead_status = booking.order_status;
+        }
 
         return resp.json({
             status  : 1,
@@ -537,6 +591,7 @@ export const offlineRSABookingData = asyncHandler(async (req, resp) => {
                 booking,
                 history,
                 feedBack: null,
+                non_conversion_reason_options: RSA_OFFLINE_NON_CONVERSION_REASONS,
             },
         });
     } catch (error) {
@@ -559,6 +614,7 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
         booking_completed_end_date,
         search_text = '',
         status,
+        reason_for_non_conversion,
         page_no,
         rowSelected,
     } = req.body;
@@ -574,6 +630,16 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
             whereValues.push(orderStatus);
             whereOperators.push('=');
         }
+    }
+
+    const nonConversionFilter = normalizeNonConversionReason(reason_for_non_conversion);
+    if (reason_for_non_conversion) {
+        if (!nonConversionFilter) {
+            return resp.json({ status: 0, code: 422, message: [RSA_OFFLINE_NON_CONVERSION_REASON_MSG] });
+        }
+        whereFields.push('reason_for_non_conversion');
+        whereValues.push(nonConversionFilter);
+        whereOperators.push('=');
     }
 
     if (start_date && end_date) {
@@ -618,6 +684,7 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
             DATE_FORMAT(booking_date, '%Y-%m-%d') AS booking_date,
             DATE_FORMAT(booking_completed_date, '%Y-%m-%d') AS booking_completed_date,
             cancellation_remarks, cancelled_by,
+            reason_for_non_conversion, lead_remarks,
             ${formatDateTimeInQuery(['created_at'])},
             (SELECT invoice_id FROM ${RSA_OFFLINE_INVOICE_TABLE} AS inv WHERE inv.request_id = ${RSA_OFFLINE_BOOKING_TABLE}.request_id LIMIT 1) AS invoice_id`,
         liveSearchFields : ['request_id', 'customer_name', 'mobile_no'],
@@ -638,6 +705,7 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
         data       : result.data,
         total_page : result.totalPage,
         total      : result.total,
+        non_conversion_reason_options: RSA_OFFLINE_NON_CONVERSION_REASONS,
     });
 });
 
@@ -691,8 +759,9 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
     const {
         customer_name, mobile_no, email_id, emailId, country_code = '+971', location_link, address, emirates,
         price, vehicle_make, vehicle_model, battery_level, jump_start_required, payment_status, mode_of_payment,
-        transaction_id, booking_status, driver_name = null, booking_completed_by = null, rsa_id = null,
+        transaction_id, booking_status, lead_status = null, driver_name = null, booking_completed_by = null, rsa_id = null,
         booking_date = null, booking_completed_date = null, cancellation_remarks = null, is_booking_completed,
+        reason_for_non_conversion = null, lead_remarks = null,
     } = mergeParam(req);
 
     const proofOfTransaction     = req.files?.['proof_of_transaction']?.[0]?.filename || null;
@@ -738,7 +807,7 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
         }
     }
 
-    const statusInput = toNullableText(booking_status) || (isBookingNotCompleted ? 'NC' : '');
+    const statusInput = toNullableText(booking_status || lead_status) || (isBookingNotCompleted ? 'NC' : '');
     const orderStatus = mapOfflineBookingStatus(statusInput);
     if (!orderStatus) {
         return resp.json({ status: 0, code: 422, message: [RSA_OFFLINE_STATUS_ALLOWED_MSG] });
@@ -756,6 +825,19 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
     const cancellationRemarks = isCancelled ? toNullableText(cancellation_remarks) : null;
     if (isCancelled && !cancellationRemarks && !isBookingNotCompleted) {
         return resp.json({ status: 0, code: 422, message: ['cancellation_remarks is required when booking status is Cancelled.'] });
+    }
+    const {
+        error: leadDetailsError,
+        reason_for_non_conversion: savedNonConversionReason,
+        lead_remarks: savedLeadRemarks,
+    } = resolveOfflineLeadDetails({
+        orderStatus,
+        isBookingNotCompleted,
+        reason_for_non_conversion,
+        lead_remarks,
+    });
+    if (leadDetailsError) {
+        return resp.json({ status: 0, code: 422, message: [leadDetailsError] });
     }
     // Payment Information: required when is_booking_completed=Yes, or booking status is Completed (PU).
     if ((!isBookingNotCompleted || isCompleted) && !serviceTermsCondition) {
@@ -838,12 +920,14 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             'order_status', 'payment_status', 'mode_of_payment', 'rsa_id', 'transaction_id', 'proof_of_transaction',
             'service_terms_condition',
             'booking_date', 'booking_completed_date', 'cancellation_remarks', 'cancelled_by',
+            'reason_for_non_conversion', 'lead_remarks',
         ], [
             temporaryRequestId, rider_id, bookingCompleted, savedCustomerName, savedMobileNo, savedEmail, savedCountryCode, location_link || null, toNullableText(address),
             savedEmirates, bookingPrice, jumpStart, batteryLevel, vehicleData, bookingPrice,
             orderStatus, payment_status || 'Pending', modeOfPayment, driverInfo.rsa_id, transaction_id || null, proofOfTransaction,
             serviceTermsCondition,
             bookingDate, completedDate, cancellationRemarks, cancelledBy,
+            savedNonConversionReason, savedLeadRemarks,
         ], connection);
 
         if (insert.affectedRows === 0) {
@@ -911,6 +995,8 @@ export const addOfflineRSABooking = asyncHandler(async (req, resp) => {
             booking_completed_date    : completedDate,
             cancellation_remarks      : cancellationRemarks,
             cancelled_by              : cancelledBy,
+            reason_for_non_conversion : savedNonConversionReason,
+            lead_remarks              : savedLeadRemarks,
             whatsapp_status,
             whatsapp_campaign_id,
         });
@@ -927,8 +1013,9 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
     const {
         request_id, customer_name, mobile_no, email_id, emailId, country_code = '+971', location_link, address, emirates,
         price, vehicle_make, vehicle_model, battery_level, jump_start_required, payment_status, mode_of_payment,
-        transaction_id, booking_status, driver_name = null, booking_completed_by = null, rsa_id = null,
+        transaction_id, booking_status, lead_status = null, driver_name = null, booking_completed_by = null, rsa_id = null,
         booking_date = null, booking_completed_date = null, cancellation_remarks = null, is_booking_completed,
+        reason_for_non_conversion = null, lead_remarks = null,
     } = mergeParam(req);
 
     const proofOfTransaction    = req.files?.['proof_of_transaction']?.[0]?.filename || null;
@@ -942,7 +1029,8 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
 
     const existing = await queryDB(
         `SELECT request_id, rider_id, mobile_no, email_id, is_booking_completed, order_status,
-                proof_of_transaction, service_terms_condition
+                proof_of_transaction, service_terms_condition,
+                reason_for_non_conversion, lead_remarks
          FROM ${RSA_OFFLINE_BOOKING_TABLE}
          WHERE request_id = ?
          LIMIT 1`,
@@ -994,7 +1082,7 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         }
     }
 
-    const statusInput = toNullableText(booking_status) || (isBookingNotCompleted ? 'NC' : '');
+    const statusInput = toNullableText(booking_status || lead_status) || (isBookingNotCompleted ? 'NC' : '');
     const orderStatus = mapOfflineBookingStatus(statusInput);
     if (!orderStatus) {
         return resp.json({
@@ -1018,6 +1106,25 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
     const cancellationRemarks = isCancelled ? toNullableText(cancellation_remarks) : null;
     if (isCancelled && !cancellationRemarks && !isBookingNotCompleted) {
         return resp.json({ status: 0, code: 422, message: ['cancellation_remarks is required when booking status is Cancelled.'] });
+    }
+    const reasonForLeadDetails = String(reason_for_non_conversion ?? '').trim()
+        ? reason_for_non_conversion
+        : existing.reason_for_non_conversion;
+    const leadRemarksForSave = lead_remarks !== undefined && lead_remarks !== null
+        ? lead_remarks
+        : existing.lead_remarks;
+    const {
+        error: leadDetailsError,
+        reason_for_non_conversion: savedNonConversionReason,
+        lead_remarks: savedLeadRemarks,
+    } = resolveOfflineLeadDetails({
+        orderStatus,
+        isBookingNotCompleted,
+        reason_for_non_conversion: reasonForLeadDetails,
+        lead_remarks: leadRemarksForSave,
+    });
+    if (leadDetailsError) {
+        return resp.json({ status: 0, code: 422, message: [leadDetailsError] });
     }
     // Payment Information: required when is_booking_completed=Yes, or status is / becomes Completed (PU).
     if ((!isBookingNotCompleted || isCompleted) && !serviceTermsCondition && !existing.service_terms_condition) {
@@ -1132,6 +1239,8 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             booking_completed_date    : completedDate,
             cancellation_remarks      : cancellationRemarks,
             cancelled_by              : cancelledBy,
+            reason_for_non_conversion : savedNonConversionReason,
+            lead_remarks              : savedLeadRemarks,
         }, ['request_id'], [request_id], connection);
 
         if (update.affectedRows === 0) {
@@ -1257,6 +1366,8 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
             booking_completed_date    : completedDate,
             cancellation_remarks      : cancellationRemarks,
             cancelled_by              : cancelledBy,
+            reason_for_non_conversion : savedNonConversionReason,
+            lead_remarks              : savedLeadRemarks,
             invoice_created           : isCompleted && !wasCompleted && !!invoice_id && !existingInvoice,
             whatsapp_status,
             whatsapp_campaign_id,

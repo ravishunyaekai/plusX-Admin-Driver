@@ -125,15 +125,21 @@ const toNullableText = (value) => {
     return trimmed === '' ? null : trimmed;
 };
 
-// Lead Details apply only when booking is not completed and status is Not Converted (NC).
+// Lead Details are required only when booking is not completed and status is Not Converted (NC).
+// When status moves off NC or the booking is completed, keep existing DB values (do not clear).
 const resolveOfflineLeadDetails = ({
     orderStatus,
     isBookingNotCompleted,
     reason_for_non_conversion,
     lead_remarks,
+    existingReason = null,
+    existingLeadRemarks = null,
 }) => {
     if (!isBookingNotCompleted || orderStatus !== 'NC') {
-        return { reason_for_non_conversion: null, lead_remarks: null };
+        return {
+            reason_for_non_conversion: existingReason ?? null,
+            lead_remarks: existingLeadRemarks ?? null,
+        };
     }
 
     const reason = normalizeNonConversionReason(reason_for_non_conversion);
@@ -1122,6 +1128,8 @@ export const editOfflineRSABooking = asyncHandler(async (req, resp) => {
         isBookingNotCompleted,
         reason_for_non_conversion: reasonForLeadDetails,
         lead_remarks: leadRemarksForSave,
+        existingReason: existing.reason_for_non_conversion,
+        existingLeadRemarks: existing.lead_remarks,
     });
     if (leadDetailsError) {
         return resp.json({ status: 0, code: 422, message: [leadDetailsError] });

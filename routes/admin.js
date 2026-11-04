@@ -24,7 +24,8 @@ import { rsaList, rsaData, rsaAdd, rsaUpdate, rsaDelete, rsaStatusChange, driver
 
 import {
     bookingData, bookingList as evRoadAssistanceBooking, invoiceList as evRoadAssistanceInvoice, invoiceData, evRoadAssistanceCancelBooking, rsaAssignBooking, failedRSABookingList, failedRSABookingDetails,
-    rsaSlotList, rsaSlotDetails, rsaSlotAdd, rsaSlotEdit, rsaDeleteSlot, addOfflineRSABooking, editOfflineRSABooking, offlineRSABookingList, offlineRSABookingData, offlineRSARiderLookup
+    rsaSlotList, rsaSlotDetails, rsaSlotAdd, rsaSlotEdit, rsaDeleteSlot, addOfflineRSABooking, editOfflineRSABooking, offlineRSABookingList, offlineRSABookingData, offlineRSARiderLookup,
+    rsaVanList, addRSAVan, rsaVanDetails, editRSAVan, deleteRSAVan, AllVanList 
 } from '../controller/admin/EvRoadAssistanceController.js'
 
 import { couponDetail, couponList, couponAdd, couponEdit, couponDelete } from "../controller/admin/CouponController.js";
@@ -290,6 +291,14 @@ const adminRoutes = [
     { method: 'post',  path: '/vendor-customer-list',    handler: customerList },
     { method: 'post',  path: '/vendor-customer-details', handler: customerDetail },
     { method: 'post',  path: '/vendor-customer-edit',    handler: editCustomer },
+
+    /* RSA Van Routes */ 
+    { method: 'post',  path: '/rsa-van-list',       handler: rsaVanList },
+    { method: 'post',  path: '/rsa-van-add',        handler: addRSAVan },
+    { method: 'post',  path: '/rsa-van-details',    handler: rsaVanDetails },
+    { method: 'post',  path: '/rsa-van-update',     handler: editRSAVan },
+    { method: 'post',  path: '/rsa-van-delete',     handler: deleteRSAVan },
+    { method: 'post',  path: '/all-rsa-van-list',   handler: AllVanList },
 ]; 
 // Define your upload rules in a config map
 const uploadRules = {

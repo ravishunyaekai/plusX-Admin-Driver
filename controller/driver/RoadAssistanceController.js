@@ -635,3 +635,26 @@ const prevBookingReachedOffice = async (booking_id, rsa_id, latitude, longitude)
         // return resp.json({ message: ['Sorry this is a duplicate entry!'], status: 0, code: 200 });
     }
 };
+
+// All Van list 
+export const getActiveVanList = asyncHandler(async (req, resp) => {
+    const { booking_id } = mergeParam(req);
+    const { isValid, errors } = validateFields(mergeParam(req), { booking_id: ["required"] });
+    if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
+     
+    let query = `SELECT pickup_latitude AS lat, pickup_longitude AS lon FROM road_assistance WHERE request_id = ?`;
+    const [[{van_id}]] = await db.execute(`SELECT van_id FROM road_assistance where request_id = ?`, [booking_id]);
+    let active_pod_id = van_id;
+    
+    const data = await queryDB(query, [booking_id]);
+    if(!data) return resp.json({ status : 0, code :422, message : ["Invalid booking id."]});
+    
+    const [result] = await db.execute(`SELECT 
+        pod_id, pod_name, design_model,
+        (6367 * ACOS(COS(RADIANS(?)) * COS(RADIANS(latitude)) * COS(RADIANS(longitude) - RADIANS(?)) + SIN(RADIANS(?)) * SIN(RADIANS(latitude)))) AS distance 
+        FROM roadside_vans
+        ORDER BY CAST(SUBSTRING(pod_name, LOCATE(' ', pod_name) + 1) AS UNSIGNED)
+    `, [data.lat, data.lon, data.lat]);
+
+    return resp.json({ status:1, code:200, message:["RSA Van List fetch successfully!"], active_pod_id, data: result });
+});

@@ -5,7 +5,7 @@ import { apiRsaAuthentication } from '../middleware/apiRsaAuthenticationMiddlewa
 
 import { rsaLogin, rsaUpdatePassword, rsaForgotPassword, rsaLogout, rsaLogutAll, rsaUpdateProfile, rsaStatusChange, rsaHome, rsaBookingHistory, rsaUpdateLatLong } from '../controller/driver/RsaController.js';
 
-import { getRsaOrderStage, orderAction } from '../controller/driver/RoadAssistanceController.js';
+import { getRsaOrderStage, orderAction, getActiveVanList } from '../controller/driver/RoadAssistanceController.js';
 import { rsaBookingStage, bookingAction, rejectBooking, getActivePodList
 } from '../controller/driver/PortableChargerController.js';
 import { 
@@ -25,6 +25,7 @@ const authzRoutes = [
     
     /* POD */
     { method: 'get', path: '/pod-list',  handler: getActivePodList },
+    { method: 'get', path: '/van-list',  handler: getActiveVanList },
 ];
 authzRoutes.forEach(({ method, path, handler }) => {
     const middlewares = [apiAuthorization];

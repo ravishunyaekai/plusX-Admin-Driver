@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import db from "../../config/db.js";
+import { fetchAdminAccessForUser } from '../../utils/adminModuleAccess.js';
 dotenv.config();
 
 // export const authorizeUser = (req, resp, next) => {
@@ -44,6 +45,27 @@ export const authenticateAdmin = async (req, resp, next) => {
         if (rows.length === 0) {
             return resp.json({ status : 403, message: "Unauthorized access or invalid user status" });
         }
+        const adminUser = rows[0];
+        let access;
+        try {
+            access = await fetchAdminAccessForUser(adminUser.id);
+        } catch (accessErr) {
+            console.error('Error loading admin module access:', accessErr);
+            if (accessErr.code === 'ER_BAD_FIELD_ERROR' || accessErr.code === 'ER_NO_SUCH_TABLE') {
+                return resp.status(503).json({
+                    status: 503,
+                    message:
+                        'Admin access is not configured. Ensure users.is_super_admin, admin_modules, and user_admin_modules exist (see sql/admin_user_module_access.sql).',
+                });
+            }
+            throw accessErr;
+        }
+        req.adminUser = adminUser;
+        req.adminAccess = {
+            isSuperAdmin: access.isSuperAdmin,
+            moduleKeys: access.moduleKeys,
+            moduleKeySet: new Set(access.moduleKeys),
+        };
         next();
 
     } catch (error) {

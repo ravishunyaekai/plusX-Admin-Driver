@@ -26,6 +26,8 @@ export const ADMIN_MODULE_EXEMPT_PATHS = new Set([
   '/logout',
   '/forgot-password',
   '/change-password',
+  // Header bell loads on every page; not limited to the dashboard module.
+  '/notification-list',
 ]);
 
 /**
@@ -38,7 +40,6 @@ export const ADMIN_ROUTE_TO_MODULE = {
   '/user-signup-list-download': 'app_signup',
 
   '/dashboard': 'dashboard',
-  '/notification-list': 'dashboard',
 
   '/rider-list': 'app_signup',
   '/rider-details': 'app_signup',

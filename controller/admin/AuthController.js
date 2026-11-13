@@ -5,7 +5,6 @@ import db from '../../config/db.js';
 import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
 import { formatDateTimeInQuery, generateRandomPassword } from '../../utils.js';
-import { fetchAdminAccessForUser } from '../../utils/adminModuleAccess.js';
 dotenv.config();
 
 var transporter = nodemailer.createTransport({
@@ -30,8 +29,6 @@ export const login = async(req, resp) => {
         }
         await db.execute('UPDATE users SET status = 1 WHERE email = ?', [email]);
         const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
-        const access = await fetchAdminAccessForUser(user.id);
-        const { password: _omitPassword, ...userDetailsSafe } = user;
       
         resp.cookie('authToken', token, { 
             httpOnly : true,   
@@ -43,13 +40,9 @@ export const login = async(req, resp) => {
         resp.status(200).json({
             message     : "Login successfull",
             code        : 200, 
-            userDetails : userDetailsSafe, 
+            userDetails : users[0], 
             base_url    : `${process.env.DIR_UPLOADS}profile-image/`,
-            Token       : process.env.CUSTOM_TOKEN,
-            adminAccess : {
-                isSuperAdmin : access.isSuperAdmin,
-                modules      : access.modules,
-            },
+            Token       : process.env.CUSTOM_TOKEN
         }) 
     } catch (error) {
       console.error("Database query error:", error);

@@ -404,30 +404,61 @@ const parsePriceDetails = (value) => {
 export const bookingList = asyncHandler(async (req, resp) => {
     const { start_date, end_date, search_text = '', status, page_no, rowSelected } = req.body;
 
-    const whereFields    = ['order_status', `COALESCE(device_name, '')`]
-    const whereValues    = ['PNR', RSA_OFFLINE_DEVICE_NAME]
-    const whereOperators = ["!=", "!="]
+    const whereFields    = [];
+    const whereValues    = [];
+    const whereOperators = [];
 
+    let createdStart = null;
+    let createdEnd   = null;
     if (start_date && end_date) {
         // Created-at window: start of day minus 4 hours through 19:59:59 UTC (end of Gulf day).
-        const start = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
-        const end = moment(end_date, "YYYY-MM-DD").format("YYYY-MM-DD") + " 19:59:59";
+        createdStart = moment(`${start_date} 00:00:01`, "YYYY-MM-DD HH:mm:ss").subtract(4, "hours").format("YYYY-MM-DD HH:mm:ss");
+        createdEnd   = moment(end_date, "YYYY-MM-DD").format("YYYY-MM-DD") + " 19:59:59";
 
         whereFields.push('created_at', 'created_at');
-        whereValues.push(start, end);
+        whereValues.push(createdStart, createdEnd);
         whereOperators.push('>=', '<=');
     }
-    if(status) {
+    if (status) {
         whereFields.push('order_status');
         whereValues.push(status);
         whereOperators.push('=');
     }
+
+    // Online bookings stay in road_assistance. Completed offline bookings (PU) are shown in the same list.
+    const combinedBookings = `(
+        SELECT
+            ra.request_id,
+            ra.rider_id,
+            ra.name,
+            ROUND(ra.price / 100, 2) AS price,
+            ra.order_status,
+            ra.created_at,
+            (SELECT rsa_name FROM rsa WHERE rsa.rsa_id = ra.rsa_id LIMIT 1) AS rsa_name,
+            'Online' AS booking_source
+        FROM road_assistance AS ra
+        WHERE ra.order_status != 'PNR'
+          AND COALESCE(ra.device_name, '') != '${RSA_OFFLINE_DEVICE_NAME}'
+        UNION ALL
+        SELECT
+            b.request_id,
+            b.rider_id,
+            b.customer_name AS name,
+            ROUND(COALESCE(b.price, 0), 2) AS price,
+            b.order_status,
+            b.created_at,
+            (SELECT r.rsa_name FROM rsa AS r WHERE r.rsa_id = b.rsa_id LIMIT 1) AS rsa_name,
+            'Offline' AS booking_source
+        FROM ${RSA_OFFLINE_BOOKING_TABLE} AS b
+        WHERE b.order_status = 'PU'
+    ) AS bookings`;
+
     const result = await getPaginatedData({
-        tableName : 'road_assistance',
-        columns   : `request_id, rider_id, name, ROUND(road_assistance.price/100, 2) AS price, order_status, ${formatDateTimeInQuery(['created_at'])}, (select rsa_name from rsa where rsa.rsa_id = road_assistance.rsa_id) as rsa_name`,
+        tableName : combinedBookings,
+        columns   : `request_id, rider_id, name, price, order_status, booking_source, ${formatDateTimeInQuery(['created_at'])}, rsa_name`,
         liveSearchFields : ['request_id', 'name'],
         liveSearchTexts  : [search_text, search_text],
-        sortColumn       : 'id',
+        sortColumn       : 'created_at',
         sortOrder        : 'DESC',
         page_no,
         limit         : rowSelected || 10,
@@ -435,6 +466,29 @@ export const bookingList = asyncHandler(async (req, resp) => {
         whereValue    : whereValues,
         whereOperator : whereOperators
     });
+
+    const offlineCountFilters = [`order_status = 'PU'`];
+    const offlineCountParams  = [];
+    if (createdStart && createdEnd) {
+        offlineCountFilters.push('created_at >= ?', 'created_at <= ?');
+        offlineCountParams.push(createdStart, createdEnd);
+    }
+    if (status) {
+        offlineCountFilters.push('order_status = ?');
+        offlineCountParams.push(status);
+    }
+    const trimmedSearch = String(search_text || '').trim();
+    if (trimmedSearch) {
+        offlineCountFilters.push('(request_id LIKE ? OR customer_name LIKE ?)');
+        offlineCountParams.push(`%${trimmedSearch}%`, `%${trimmedSearch}%`);
+    }
+    const offlineCount = await queryDB(
+        `SELECT COUNT(*) AS offline_completed_count
+         FROM ${RSA_OFFLINE_BOOKING_TABLE}
+         WHERE ${offlineCountFilters.join(' AND ')}`,
+        offlineCountParams
+    );
+
     return resp.json({
         status     : 1,
         code       : 200,
@@ -442,8 +496,82 @@ export const bookingList = asyncHandler(async (req, resp) => {
         data       : result.data,
         total_page : result.totalPage,
         total      : result.total,
-    });    
+        offline_completed_count : Number(offlineCount?.offline_completed_count || 0),
+    });
 });
+
+// Shared offline booking payload. The dedicated offline details API and the main booking details API both use it.
+const loadOfflineBookingDetails = async (request_id) => {
+    const booking = await queryDB(`
+        SELECT
+            b.request_id, b.rider_id, b.is_booking_completed, ${formatDateTimeInQuery(['b.created_at'])},
+            DATE_FORMAT(b.booking_date, '%Y-%m-%d') AS booking_date,
+            DATE_FORMAT(b.booking_completed_date, '%Y-%m-%d') AS booking_completed_date,
+            b.customer_name AS name, b.mobile_no AS contact_no, b.email_id AS email, b.country_code,
+            b.order_status, b.address AS pickup_address, b.emirates, b.location_link,
+            b.vehicle_data, b.battery_level, b.jump_start_required,
+            b.price, b.booking_price, b.mode_of_payment, b.rsa_id, b.proof_of_transaction,
+            b.service_terms_condition,
+            b.cancellation_remarks, b.cancelled_by,
+            b.reason_for_non_conversion, b.lead_remarks,
+            (SELECT h.driver_name FROM ${RSA_OFFLINE_HISTORY_TABLE} AS h
+                WHERE h.order_id = b.request_id ORDER BY h.id DESC LIMIT 1) AS driver_name,
+            r.rsa_name,
+            r.country_code AS driver_country_code,
+            r.mobile AS driver_mobile_no,
+            inv.invoice_id,
+            COALESCE(b.payment_status, inv.payment_status) AS payment_status,
+            COALESCE(b.transaction_id, inv.transaction_id) AS transaction_id, rv.pod_name
+        FROM ${RSA_OFFLINE_BOOKING_TABLE} AS b
+        LEFT JOIN ${RSA_OFFLINE_INVOICE_TABLE} AS inv ON inv.request_id = b.request_id
+        LEFT JOIN rsa AS r ON r.rsa_id = b.rsa_id
+        LEFT JOIN roadside_vans AS rv ON rv.pod_id = b.van_id
+        WHERE b.request_id = ?
+        LIMIT 1
+    `, [request_id]);
+
+    if (!booking) return null;
+
+    const [history] = await db.execute(`
+        SELECT order_status, driver_name, remarks, ${formatDateTimeInQuery(['created_at'])}
+        FROM ${RSA_OFFLINE_HISTORY_TABLE}
+        WHERE order_id = ?
+        ORDER BY id ASC
+    `, [request_id]);
+
+    // vehicle_data is stored as "Make, Model" but the edit form needs the two dropdowns separately
+    const [vehicleMake = null, ...vehicleModelParts] = String(booking.vehicle_data || '')
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+
+    const driverContact = [booking.driver_country_code, booking.driver_mobile_no].filter(Boolean).join('-');
+    booking.price                    = Number(booking.price || 0).toFixed(2);
+    booking.vehicle_make             = vehicleMake;
+    booking.vehicle_model            = vehicleModelParts.join(', ') || null;
+    booking.mobile_no                = booking.contact_no;
+    booking.booking_source           = 'Offline';
+    booking.rsa_data                 = [booking.rsa_name, driverContact].filter(Boolean).join(',');
+    booking.pickup_latitude          = null;
+    booking.pickup_longitude         = null;
+    booking.parking_number           = null;
+    booking.parking_floor            = null;
+    booking.vehicle_id               = null;
+    booking.current_percent          = booking.battery_level;
+    booking.imageUrl                 = `${process.env.DIR_UPLOADS}${RSA_OFFLINE_PROOF_FOLDER}/`;
+    booking.proof_of_transaction_url = booking.proof_of_transaction
+        ? `${process.env.DIR_UPLOADS}${RSA_OFFLINE_PROOF_FOLDER}/${booking.proof_of_transaction}`
+        : null;
+    booking.service_terms_condition_url = booking.service_terms_condition
+        ? `${process.env.DIR_UPLOADS}${RSA_OFFLINE_PROOF_FOLDER}/${booking.service_terms_condition}`
+        : null;
+    booking.booking_completed_by     = booking.driver_name;
+    if (booking.is_booking_completed === 'No') {
+        booking.lead_status = booking.order_status;
+    }
+
+    return { booking, history };
+};
 
 export const bookingData = asyncHandler(async (req, resp) => {
     try {
@@ -464,8 +592,33 @@ export const bookingData = asyncHandler(async (req, resp) => {
             LIMIT 1`, 
         [request_id]);
         if (!booking) {
-            return resp.json({ status : 0, code : 404, message : ['Booking not found.'] });
-        } 
+            // Completed offline rows are listed with online bookings, so the same details call must resolve them.
+            const offline = await loadOfflineBookingDetails(request_id);
+            if (!offline || offline.booking.order_status !== 'PU') {
+                return resp.json({ status : 0, code : 404, message : ['Booking not found.'] });
+            }
+            const history = offline.history.map((row) => ({
+                order_status : row.order_status,
+                cancel_by    : null,
+                reason       : row.remarks,
+                rsa_id       : offline.booking.rsa_id,
+                created_at   : row.created_at,
+                image        : null,
+                remarks      : row.remarks,
+                rsa_name     : row.driver_name || offline.booking.rsa_name,
+            }));
+            return resp.json({
+                status  : 1,
+                code    : 200,
+                message : ["Booking details fetched successfully!"],
+                data : {
+                    booking  : offline.booking,
+                    history,
+                    feedBack : null,
+                },
+            });
+        }
+        booking.booking_source = 'Online'; 
         if(booking.vehicle_data == '' || booking.vehicle_data == null) {
             const vehicledata = await queryDB(`
                 SELECT                 
@@ -529,64 +682,9 @@ export const offlineRSABookingData = asyncHandler(async (req, resp) => {
         if (!request_id) {
             return resp.json({ status : 0, code : 400, message : ['Booking ID is required.'] });
         }
-        const booking = await queryDB(`
-            SELECT
-                b.request_id, b.rider_id, b.is_booking_completed, ${formatDateTimeInQuery(['b.created_at'])},
-                DATE_FORMAT(b.booking_date, '%Y-%m-%d') AS booking_date,
-                DATE_FORMAT(b.booking_completed_date, '%Y-%m-%d') AS booking_completed_date,
-                b.customer_name AS name, b.mobile_no AS contact_no, b.email_id AS email, b.country_code,
-                b.order_status, b.address AS pickup_address, b.emirates, b.location_link,
-                b.vehicle_data, b.battery_level, b.jump_start_required,
-                b.price, b.booking_price, b.mode_of_payment, b.rsa_id, b.proof_of_transaction,
-                b.service_terms_condition,
-                b.cancellation_remarks, b.cancelled_by,
-                b.reason_for_non_conversion, b.lead_remarks,
-                (SELECT h.driver_name FROM ${RSA_OFFLINE_HISTORY_TABLE} AS h
-                    WHERE h.order_id = b.request_id ORDER BY h.id DESC LIMIT 1) AS driver_name,
-                r.rsa_name,
-                r.country_code AS driver_country_code,
-                r.mobile AS driver_mobile_no,
-                inv.invoice_id,
-                COALESCE(b.payment_status, inv.payment_status) AS payment_status,
-                COALESCE(b.transaction_id, inv.transaction_id) AS transaction_id, rv.pod_name
-            FROM ${RSA_OFFLINE_BOOKING_TABLE} AS b
-            LEFT JOIN ${RSA_OFFLINE_INVOICE_TABLE} AS inv ON inv.request_id = b.request_id
-            LEFT JOIN rsa AS r ON r.rsa_id = b.rsa_id
-            LEFT JOIN roadside_vans AS rv ON rv.pod_id = b.van_id
-            WHERE b.request_id = ?
-            LIMIT 1
-        `, [request_id]);
-
-        if (!booking) {
+        const offline = await loadOfflineBookingDetails(request_id);
+        if (!offline) {
             return resp.json({ status : 0, code : 404, message : ['Booking not found.'] });
-        }
-
-        const [history] = await db.execute(`
-            SELECT order_status, driver_name, remarks, ${formatDateTimeInQuery(['created_at'])}
-            FROM ${RSA_OFFLINE_HISTORY_TABLE}
-            WHERE order_id = ?
-            ORDER BY id ASC
-        `, [request_id]);
-
-        // vehicle_data is stored as "Make, Model" but the edit form needs the two dropdowns separately
-        const [vehicleMake = null, ...vehicleModelParts] = String(booking.vehicle_data || '')
-            .split(',')
-            .map((part) => part.trim())
-            .filter(Boolean);
-
-        booking.price                    = Number(booking.price || 0).toFixed(2);
-        booking.vehicle_make             = vehicleMake;
-        booking.vehicle_model            = vehicleModelParts.join(', ') || null;
-        booking.mobile_no                = booking.contact_no;
-        booking.proof_of_transaction_url = booking.proof_of_transaction
-            ? `${process.env.DIR_UPLOADS}${RSA_OFFLINE_PROOF_FOLDER}/${booking.proof_of_transaction}`
-            : null;
-        booking.service_terms_condition_url = booking.service_terms_condition
-            ? `${process.env.DIR_UPLOADS}${RSA_OFFLINE_PROOF_FOLDER}/${booking.service_terms_condition}`
-            : null;
-        booking.booking_completed_by     = booking.driver_name;
-        if (booking.is_booking_completed === 'No') {
-            booking.lead_status = booking.order_status;
         }
 
         return resp.json({
@@ -594,9 +692,9 @@ export const offlineRSABookingData = asyncHandler(async (req, resp) => {
             code    : 200,
             message : ['Offline booking details fetched successfully!'],
             data    : {
-                booking,
-                history,
-                feedBack: null,
+                booking  : offline.booking,
+                history  : offline.history,
+                feedBack : null,
                 non_conversion_reason_options: RSA_OFFLINE_NON_CONVERSION_REASONS,
             },
         });
@@ -625,10 +723,11 @@ export const offlineRSABookingList = asyncHandler(async (req, resp) => {
         rowSelected,
     } = req.body;
 
-    const whereFields    = [];
-    const whereValues    = [];
-    const whereOperators = [];
+    const whereFields    = ['order_status'];
+    const whereValues    = ['PU'];
+    const whereOperators = ['!='];
 
+    // Completed (PU) offline bookings are shown on the main road assistance booking list.
     if (status) {
         const orderStatus = mapOfflineBookingStatus(status);
         if (orderStatus) {

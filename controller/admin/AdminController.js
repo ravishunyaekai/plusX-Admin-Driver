@@ -6,32 +6,8 @@ import { asyncHandler, mergeParam, formatDateTimeInQuery } from '../../utils.js'
 import moment from 'moment';
 dotenv.config();
 
-/** Dashboard cards belong to a module. Dashboard access alone does not show every card. */
-const DASHBOARD_CARDS = [
-    { module : 'App Sign Up',                            moduleKey : 'app_signup',           countKey : 'total_rider' },
-    { module : 'POD Bookings',                           moduleKey : 'portable_charger',     countKey : 'total_charger_booking' },
-    { module : 'Pickup & Dropoff Bookings',              moduleKey : 'pick_drop',            countKey : 'total_charging_service' },
-    { module : 'Charger Installation Bookings',          moduleKey : 'charger_installation', countKey : 'total_installation' },
-    { module : 'EV Road Assistance',                     moduleKey : 'ev_road_assistance',   countKey : 'total_road_assistance' },
-    { module : 'EV Insurance Leads',                     moduleKey : 'ev_insurance',         countKey : 'total_insurance' },
-    { module : 'No. of Regs. Drivers',                   moduleKey : 'drivers',              countKey : 'total_rsa' },
-    { module : 'Total Public Chargers',                  moduleKey : 'public_chargers',      countKey : 'total_station' },
-    { module : 'Today POD Failed Bookings',              moduleKey : 'portable_charger',     countKey : 'total_pod_failed' },
-    { module : 'Today Pickup & Dropoff Failed Bookings', moduleKey : 'pick_drop',            countKey : 'valet_failed' },
-    { module : 'Today Road Side Failed Bookings',        moduleKey : 'ev_road_assistance',   countKey : 'total_rsa_failed' },
-    { module : 'EV Chargers Booking',                    moduleKey : 'charger_installation', countKey : 'total_charger_booiking' },
-    { module : 'EV Accessories Booking',                 moduleKey : 'charger_installation', countKey : 'total_accessories_booiking' },
-    { module : 'Charger Share List',                     moduleKey : 'charge_share',         countKey : 'charge_share_booiking' },
-];
-
-function adminCanSeeModule(access, moduleKey) {
-    if (!access || access.isSuperAdmin) return true;
-    return Boolean(access.moduleKeySet?.has(moduleKey));
-}
-
 export const getDashboardData = async (req, resp) => {
     try {
-        const access        = req.adminAccess;
         const today         = new Date();
         const formattedDate = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
         
@@ -44,7 +20,10 @@ export const getDashboardData = async (req, resp) => {
             (SELECT COUNT(*) FROM rsa) AS total_rsa,
             (SELECT COUNT(*) FROM portable_charger_booking WHERE created_at >= "${currentDate}" and status != "PNR") AS total_charger_booking,
             (SELECT COUNT(*) FROM charging_service WHERE created_at >= "${currentDate}" and order_status != "PNR") AS total_charging_service,
-            (SELECT COUNT(*) FROM road_assistance WHERE created_at >= "${currentDate}" and order_status != "PNR") AS total_road_assistance,
+            (
+                (SELECT COUNT(*) FROM road_assistance WHERE created_at >= "${currentDate}" and order_status != "PNR")
+                + (SELECT COUNT(*) FROM rsa_offline_booking WHERE created_at >= "${currentDate}" and order_status = "PU")
+            ) AS total_road_assistance,
             (SELECT COUNT(*) FROM charging_installation_service WHERE created_at >= "${currentDate}") AS total_installation,
             (SELECT COUNT(*) FROM public_charging_station_list) AS total_station,
             (SELECT COUNT(*) FROM failed_portable_charger_booking WHERE created_at >= "${currentDate}" ) AS total_pod_failed,
@@ -55,18 +34,10 @@ export const getDashboardData = async (req, resp) => {
             (SELECT COUNT(*) FROM ev_accessories_booiking WHERE created_at >= "${currentDate}") AS total_accessories_booiking,
             (SELECT COUNT(*) FROM charge_share WHERE created_at >= "${currentDate}") AS charge_share_booiking`
         );
+        const [rsaRecords] = await db.execute(`SELECT id, rsa_id, rsa_name, email, country_code, mobile, status, latitude AS lat, longitude AS lng FROM rsa where latitude != '' and status In(1, 2)`);
+        const [podRecords] = await db.execute(`SELECT id, pod_id, device_id, pod_name, status, charging_status, latitude AS lat, longitude AS lng FROM pod_devices where latitude != ''`);
 
-        const seeDrivers = adminCanSeeModule(access, 'drivers');
-        const seePods    = adminCanSeeModule(access, 'portable_charger');
-
-        const rsaRecords = seeDrivers
-            ? (await db.execute(`SELECT id, rsa_id, rsa_name, email, country_code, mobile, status, latitude AS lat, longitude AS lng FROM rsa where latitude != '' and status In(1, 2)`))[0]
-            : [];
-        const podRecords = seePods
-            ? (await db.execute(`SELECT id, pod_id, device_id, pod_name, status, charging_status, latitude AS lat, longitude AS lng FROM pod_devices where latitude != ''`))[0]
-            : [];
-
-        const location = rsaRecords.map((rsa) => ({
+        const location = rsaRecords.map((rsa, i) => ({
             key         : rsa.rsa_id,
             rsaId       : rsa.rsa_id,
             rsaName     : rsa.rsa_name,
@@ -77,7 +48,7 @@ export const getDashboardData = async (req, resp) => {
             location    : { lat: parseFloat(rsa.lat), lng: parseFloat(rsa.lng) },
         }));
 
-        const podLocation = podRecords.map((pod) => ({
+        const podLocation = podRecords.map((pod, i) => ({
             podId           : pod.pod_id,
             deviceId        : pod.device_id,
             podName         : pod.pod_name,
@@ -86,10 +57,22 @@ export const getDashboardData = async (req, resp) => {
             location        : { lat: parseFloat(pod.lat), lng: parseFloat(pod.lng) },
         }));
 
-        const row = counts[0] || {};
-        const count_arr = DASHBOARD_CARDS
-            .filter((card) => adminCanSeeModule(access, card.moduleKey))
-            .map((card) => ({ module : card.module, count : row[card.countKey] }));
+        const count_arr = [
+            { module : 'App Sign Up',                            count : counts[0].total_rider },
+            { module : 'POD Bookings',                           count : counts[0].total_charger_booking },
+            { module : 'Pickup & Dropoff Bookings',              count : counts[0].total_charging_service },
+            { module : 'Charger Installation Bookings',          count : counts[0].total_installation },
+            { module : 'EV Road Assistance',                     count : counts[0].total_road_assistance },
+            { module : 'EV Insurance Leads',                     count : counts[0].total_insurance },
+            { module : 'No. of Regs. Drivers',                   count : counts[0].total_rsa },
+            { module : 'Total Public Chargers',                  count : counts[0].total_station }, 
+            { module : 'Today POD Failed Bookings',              count : counts[0].total_pod_failed }, 
+            { module : 'Today Pickup & Dropoff Failed Bookings', count : counts[0].valet_failed },
+            { module : 'Today Road Side Failed Bookings',        count : counts[0].total_rsa_failed },
+            { module : 'EV Chargers Booking',                    count : counts[0].total_charger_booiking },
+            { module : 'EV Accessories Booking',                 count : counts[0].total_accessories_booiking },
+            { module : 'Charger Share List',                     count : counts[0].charge_share_booiking },
+        ];
         //io.emit('notification-list', {msCount : 1});
         return resp.json({code : 200, data : {count_arr, location, podLocation}});
     } catch (error) {

@@ -357,7 +357,12 @@ export const rsaHome = asyncHandler(async (req, resp) => {
                 COALESCE(oa.running, 0) AS running_order_count,
                 COALESCE(oa.pending, 0) AS rsa_count,
                 COALESCE(ob.completed, 0) AS rsa_completed,
-                COALESCE(ob.cancelled, 0) AS rsa_cancelled
+                COALESCE(ob.cancelled, 0) AS rsa_cancelled,
+                COALESCE((
+                    SELECT COUNT(*)
+                    FROM rsa_offline_booking AS rob
+                    WHERE rob.rsa_id = r.rsa_id AND rob.order_status = 'PU'
+                ), 0) AS offline_completed
             FROM rsa r
 
             LEFT JOIN (
@@ -399,11 +404,13 @@ export const rsaHome = asyncHandler(async (req, resp) => {
                 order_assign.rsa_id = ?
             ORDER BY order_assign.id ASC `,[rsa_id]
         );
-        result.running_order_count = data.running_order_count || 0 ;
-        result.booking_count       = data.rsa_count || 0 ;
-        result.rejected_count      = 0
-        result.completed_count     = data.rsa_completed || 0 ;
-        result.cancelled_count     = data.rsa_cancelled || 0 ;
+        const offlineCompleted = Number(data?.offline_completed ?? 0);
+        result.running_order_count     = data?.running_order_count || 0 ;
+        result.booking_count           = Number(data?.rsa_count ?? 0);
+        result.offline_completed_count = offlineCompleted;
+        result.rejected_count          = 0;
+        result.completed_count         = Number(data?.rsa_completed ?? 0) + offlineCompleted;
+        result.cancelled_count         = data?.rsa_cancelled || 0 ;
         result.assigned_booking    = rsaAssign.filter(item => item.assign_status === 0); 
         result.ongoing_booking     = rsaAssign.filter(item => item.assign_status === 1); 
     }
@@ -815,8 +822,45 @@ export const rsaBookingHistory = asyncHandler(async (req, resp) => {
                 image : record.image ? record.image.split('*').map(img => `${baseUrl}${img}`) : []
             };
         });
-        result.booking_completed = rsaCompletedWithImages;
-        result.booking_cancelled = [];
+
+        const [rsaOfflineCompleted] = await db.execute(`
+            SELECT
+                b.request_id,
+                b.address AS pickup_address,
+                NULL AS pickup_latitude,
+                NULL AS pickup_longitude,
+                b.order_status,
+                h.remarks,
+                NULL AS image,
+                b.vehicle_data,
+                b.rsa_id,
+                b.van_id,
+                rv.pod_name AS van_name,
+                'Offline' AS booking_source,
+                ${formatDateTimeInQuery(['b.created_at', 'b.updated_at'])},
+                CONCAT(b.customer_name, ",", b.country_code, "-", b.mobile_no) AS riderDetails
+            FROM rsa_offline_booking AS b
+            LEFT JOIN rsa_offline_order_history AS h
+                ON h.order_id = b.request_id
+                AND h.id = (
+                    SELECT MAX(h2.id) FROM rsa_offline_order_history AS h2 WHERE h2.order_id = b.request_id
+                )
+            LEFT JOIN roadside_vans AS rv ON rv.pod_id = b.van_id
+            WHERE b.order_status = 'PU' AND b.rsa_id = ?
+            ORDER BY b.updated_at DESC
+        `, [rsa_id]);
+
+        const rsaOfflineCompletedWithImages = rsaOfflineCompleted.map((record) => ({
+            ...record,
+            image: [],
+        }));
+
+        const bookingCompleted = [...rsaCompletedWithImages, ...rsaOfflineCompletedWithImages];
+        result.booking_completed         = bookingCompleted;
+        result.booking_cancelled         = [];
+        result.booking_count             = bookingCompleted.length;
+        result.completed_count           = bookingCompleted.length;
+        result.offline_completed_count   = rsaOfflineCompletedWithImages.length;
     } 
     return resp.json({
         message : [ "Driver Booking Completed/ Cancelled History" ], 

@@ -164,6 +164,8 @@ export const ADMIN_ROUTE_TO_MODULE = {
   '/ev-road-assistance-invoice-list': 'ev_road_assistance',
   '/ev-road-assistance-invoice-data': 'ev_road_assistance',
   '/ev-road-assistance-assign': 'ev_road_assistance',
+  '/ev-road-assistance-assign-van': 'ev_road_assistance',
+  '/ev-road-assistance-van-list': 'ev_road_assistance',
   '/failed-road-assistance-list': 'ev_road_assistance',
   '/failed-road-assistance-details': 'ev_road_assistance',
   '/road-assistance-slot-list': 'ev_road_assistance',

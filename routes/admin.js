@@ -24,7 +24,7 @@ import { chargerInstallationInquiryList, chargerInstallationInquiryDetails, char
 import { rsaList, rsaData, rsaAdd, rsaUpdate, rsaDelete, rsaStatusChange, driverBookingList, allRsaList, driverLocationList } from "../controller/admin/RsaController.js";
 
 import {
-    bookingData, bookingList as evRoadAssistanceBooking, invoiceList as evRoadAssistanceInvoice, invoiceData, evRoadAssistanceCancelBooking, rsaAssignBooking, failedRSABookingList, failedRSABookingDetails,
+    bookingData, bookingList as evRoadAssistanceBooking, invoiceList as evRoadAssistanceInvoice, invoiceData, evRoadAssistanceCancelBooking, rsaAssignBooking, evRoadAssistanceAssignVan, evRoadAssistanceVanList, failedRSABookingList, failedRSABookingDetails,
     rsaSlotList, rsaSlotDetails, rsaSlotAdd, rsaSlotEdit, rsaDeleteSlot, addOfflineRSABooking, editOfflineRSABooking, offlineRSABookingList, offlineRSABookingData, offlineRSARiderLookup,
     rsaVanList, addRSAVan, rsaVanDetails, editRSAVan, deleteRSAVan, AllVanList 
 } from '../controller/admin/EvRoadAssistanceController.js'
@@ -154,6 +154,8 @@ const adminRoutes = [
     { method: 'post', path: '/ev-road-assistance-invoice-list',    handler: evRoadAssistanceInvoice },
     { method: 'post', path: '/ev-road-assistance-invoice-data',    handler: invoiceData },
     { method: 'post', path: '/ev-road-assistance-assign',          handler: rsaAssignBooking },
+    { method: 'post', path: '/ev-road-assistance-assign-van',    handler: evRoadAssistanceAssignVan },
+    { method: 'post', path: '/ev-road-assistance-van-list',      handler: evRoadAssistanceVanList },
     { method: 'post', path: '/failed-road-assistance-list',        handler: failedRSABookingList },
     { method: 'post', path: '/failed-road-assistance-details',     handler: failedRSABookingDetails },
 

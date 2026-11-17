@@ -551,7 +551,8 @@ export const bookingList = asyncHandler(async (req, resp) => {
             ra.order_status,
             ra.created_at,
             (SELECT rsa_name FROM rsa WHERE rsa.rsa_id = ra.rsa_id LIMIT 1) AS rsa_name,
-            'Online' AS booking_source
+            'Online' AS booking_source,
+            ra.van_id
         FROM road_assistance AS ra
         WHERE ra.order_status != 'PNR'
           AND COALESCE(ra.device_name, '') != '${RSA_OFFLINE_DEVICE_NAME}'
@@ -564,14 +565,15 @@ export const bookingList = asyncHandler(async (req, resp) => {
             b.order_status,
             b.created_at,
             (SELECT r.rsa_name FROM rsa AS r WHERE r.rsa_id = b.rsa_id LIMIT 1) AS rsa_name,
-            'Offline' AS booking_source
+            'Offline' AS booking_source,
+            b.van_id
         FROM ${RSA_OFFLINE_BOOKING_TABLE} AS b
         WHERE b.order_status = 'PU'
     ) AS bookings`;
 
     const result = await getPaginatedData({
         tableName : combinedBookings,
-        columns   : `request_id, rider_id, name, price, order_status, booking_source, ${formatDateTimeInQuery(['created_at'])}, rsa_name`,
+        columns   : `request_id, rider_id, name, price, order_status, booking_source, ${formatDateTimeInQuery(['created_at'])}, rsa_name, van_id`,
         liveSearchFields : ['request_id', 'name'],
         liveSearchTexts  : [search_text, search_text],
         sortColumn       : 'created_at',
@@ -1827,31 +1829,13 @@ export const invoiceData = async (req, resp) => {
 
 export const rsaAssignBooking = async (req, resp) => {
     const params = mergeParam(req);
-    const { rsa_id, booking_id, podId, pod_id, van_id, vanId } = params;
+    const { rsa_id, booking_id } = params;
     const { isValid, errors } = validateFields(params, {
         rsa_id     : ["required"],
         booking_id : ["required"],
     });
     if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
 
-    const resolvedVanId = resolveOfflineVanIdFromRequest({ podId, pod_id, van_id, vanId });
-    if (!resolvedVanId) {
-        return resp.json({
-            status  : 0,
-            code    : 422,
-            message : ['Van (pod_id / van_id) is required when assigning a driver.'],
-        });
-    }
-
-    const vanRow = await queryDB(
-        `SELECT pod_id FROM roadside_vans WHERE pod_id = ? AND status = 1 LIMIT 1`,
-        [resolvedVanId]
-    );
-    if (!vanRow) {
-        return resp.json({ status: 0, code: 422, message: ['Invalid or inactive van selected.'] });
-    }
-    const savedVanData = await buildOfflineVanDataJson(resolvedVanId);
-    
     try { 
         const booking_data = await queryDB( `SELECT rider_id, rsa_id, (select fcm_token from riders as r where r.rider_id = road_assistance.rider_id ) as fcm_token FROM road_assistance WHERE request_id = ?
         `, [booking_id ] );
@@ -1867,8 +1851,9 @@ export const rsaAssignBooking = async (req, resp) => {
             ['order_id', 'rsa_id', 'rider_id', 'status'], [booking_id, rsa_id, booking_data.rider_id, 0]
         );
         await db.execute(`DELETE FROM order_assign WHERE order_id = ? AND rsa_id = ?`, [booking_id, booking_data.rsa_id]);
+        // Van is assigned separately via evRoadAssistanceAssignVan after the driver.
         await updateRoadAssistanceBookingRow(
-            { rsa_id, van_id: resolvedVanId, van_data: savedVanData },
+            { rsa_id, van_id: null, van_data: null },
             booking_id
         );
        
@@ -1930,7 +1915,7 @@ export const evRoadAssistanceAssignVan = asyncHandler(async (req, resp) => {
     }
 
     const booking = await queryDB(
-        `SELECT request_id, order_status FROM road_assistance WHERE request_id = ? LIMIT 1`,
+        `SELECT request_id, order_status, rsa_id FROM road_assistance WHERE request_id = ? LIMIT 1`,
         [booking_id]
     );
     if (!booking) {
@@ -1947,6 +1932,27 @@ export const evRoadAssistanceAssignVan = asyncHandler(async (req, resp) => {
         return resp.json({ status: 0, code: 422, message: ['Cannot assign van to a completed booking.'] });
     }
 
+    const assignedRsaId = String(booking.rsa_id ?? '').trim();
+    if (!assignedRsaId) {
+        return resp.json({
+            status  : 0,
+            code    : 422,
+            message : ['Assign a driver to this booking before assigning a van.'],
+        });
+    }
+
+    const driverAssign = await queryDB(
+        `SELECT 1 AS ok FROM order_assign WHERE order_id = ? AND rsa_id = ? LIMIT 1`,
+        [booking_id, assignedRsaId]
+    );
+    if (!driverAssign) {
+        return resp.json({
+            status  : 0,
+            code    : 422,
+            message : ['No driver assignment found for this booking. Assign a driver first.'],
+        });
+    }
+
     const savedVanData = await buildOfflineVanDataJson(resolvedVanId);
     await updateRoadAssistanceBookingRow(
         { van_id: resolvedVanId, van_data: savedVanData },
@@ -1957,7 +1963,7 @@ export const evRoadAssistanceAssignVan = asyncHandler(async (req, resp) => {
         status  : 1,
         code    : 200,
         message : ['Van assigned successfully!'],
-        data    : { booking_id, van_id: resolvedVanId },
+        data    : { booking_id, van_id: resolvedVanId, rsa_id: assignedRsaId },
     });
 });
 

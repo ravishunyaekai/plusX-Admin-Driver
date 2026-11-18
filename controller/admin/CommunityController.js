@@ -551,7 +551,7 @@ export const communityList = async (req, resp) => {
         const { page_no = 1, search_text = '' } = mergeParam(req);
         const params = { //;
             tableName  : ' community_list as cl',
-            columns    : `cl.community_id, community_name, area_name, total_residence, (SELECT count(*) FROM community_chargers as cc WHERE cc.community_id = cl.community_id ) AS no_of_chargers`,
+            columns    : `cl.community_id, community_name, area_name, (SELECT Count(*) FROM  community_resident as cr where cr.community_id = cl.community_id) total_residence, (SELECT count(*) FROM community_chargers as cc WHERE cc.community_id = cl.community_id ) AS no_of_chargers`,
             sortColumn : 'id',
             sortOrder  : 'DESC',
             page_no,
@@ -585,7 +585,7 @@ export const communityDetail = asyncHandler(async (req, resp) => {
     
     const communities = await queryDB(`
         SELECT 
-            community_id, community_name, area_name, total_residence, ${formatDateTimeInQuery(['created_at'])}, status
+            community_id, community_name, area_name, (SELECT Count(*) FROM  community_resident as cr where cr.community_id = community_list.community_id) total_residence, ${formatDateTimeInQuery(['created_at'])}, status
         FROM community_list 
         WHERE community_id = ?`, [community_id]
     );
@@ -617,7 +617,7 @@ export const communityDetail = asyncHandler(async (req, resp) => {
 export const addCommunity = asyncHandler(async (req, resp) => {
     try {
         const {
-            community_name, area_name, total_residence, chargers, kwValues,
+            community_name, area_name, total_residence="", chargers, kwValues,
             manager_name, manager_email, country_code = '+971', password
         } = req.body;
         const manager_contact = String(req.body.manager_contact ?? '').trim() || null;
@@ -627,7 +627,7 @@ export const addCommunity = asyncHandler(async (req, resp) => {
         const { isValid, errors } = validateFields(req.body, { 
             community_name   : ["required"], 
             area_name        : ["required"], 
-            total_residence  : ["required"], 
+            // total_residence  : ["required"], 
             chargers         : ["required"],
             kwValues         : ["required"],
             manager_name     : ["required"],
@@ -697,7 +697,7 @@ export const addCommunity = asyncHandler(async (req, resp) => {
 export const editCommunity = asyncHandler(async (req, resp) => {
     try {
         const {
-            community_id, community_name, area_name, total_residence, chargers, kwValues,
+            community_id, community_name, area_name, total_residence="", chargers, kwValues,
             manager_name, manager_email, country_code = '+971', password
         } = req.body;
         const manager_contact = String(req.body.manager_contact ?? '').trim() || null;
@@ -708,7 +708,7 @@ export const editCommunity = asyncHandler(async (req, resp) => {
             community_id     : ["required"], 
             community_name   : ["required"], 
             area_name        : ["required"], 
-            total_residence  : ["required"], 
+            // total_residence  : ["required"], 
             chargers         : ["required"],
             kwValues         : ["required"],
             manager_name     : ["required"],

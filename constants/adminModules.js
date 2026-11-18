@@ -17,6 +17,7 @@ export const ADMIN_MODULES = [
   { key: 'charge_share', label: 'Charge Share Listings' },
   { key: 'coupon', label: 'Coupon' },
   { key: 'offer', label: 'Offer' },
+  { key: 'partner_chargers', label: 'Partner Chargers Management' },
 ];
 
 export const ADMIN_MODULE_KEYS = new Set(ADMIN_MODULES.map((m) => m.key));
@@ -232,4 +233,16 @@ export const ADMIN_ROUTE_TO_MODULE = {
   '/vendor-customer-list': 'vendor_charging',
   '/vendor-customer-details': 'vendor_charging',
   '/vendor-customer-edit': 'vendor_charging',
+
+  '/partner-station-list': 'partner_chargers',
+  '/partner-station-details': 'partner_chargers',
+  '/partner-station-form-data': 'partner_chargers',
+  '/partner-station-add': 'partner_chargers',
+  '/partner-station-edit': 'partner_chargers',
+  '/all-partner-station-list': 'partner_chargers',
+  '/partner-charger-list': 'partner_chargers',
+  '/partner-charger-details': 'partner_chargers',
+  '/partner-charger-form-data': 'partner_chargers',
+  '/partner-charger-add': 'partner_chargers',
+  '/partner-charger-edit': 'partner_chargers',
 };

@@ -3,6 +3,7 @@ import bodyParser from 'body-parser';
 import adminRoutes from './routes/admin.js';
 import driverRoutes from './routes/driver.js';
 import communityRoutes from './routes/community.js';
+import partnerStationRoutes from './routes/partnerStation.js';
 import path from 'path';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -51,6 +52,8 @@ app.use('/admin', adminRoutes);
 app.use('/driver', driverRoutes);
 // Community manager APIs (login, dashboard, community details, residents — scoped by community_id)
 app.use('/community', communityRoutes);
+// Station Master portal APIs (credentials on partner_charging_stations.master_*)
+app.use('/partner-station', partnerStationRoutes);
 
 // ---------------------------------------------------------------------------
 // Community panel UI on partner subdomain (served at root "/")

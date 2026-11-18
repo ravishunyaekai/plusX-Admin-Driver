@@ -46,6 +46,20 @@ import { communityList, communityDetail, addCommunity, editCommunity, allCommuni
 
 import { addVendor, vendorList, vendorDetail, editVendor, allVendorList, addCustomer, customerList, customerDetail, editCustomer } from "../controller/admin/VendorController.js";
 
+import {
+    partnerStationList,
+    partnerStationDetail,
+    partnerStationFormData,
+    partnerStationAdd,
+    partnerStationEdit,
+    allPartnerStationList,
+    partnerChargerList,
+    partnerChargerDetail,
+    partnerChargerFormData,
+    partnerChargerAdd,
+    partnerChargerEdit,
+} from '../controller/admin/PartnerChargerController.js';
+
 const router = Router();
 
 const adminAuthRoutes = [
@@ -294,6 +308,19 @@ const adminRoutes = [
     { method: 'post',  path: '/vendor-customer-list',    handler: customerList },
     { method: 'post',  path: '/vendor-customer-details', handler: customerDetail },
     { method: 'post',  path: '/vendor-customer-edit',    handler: editCustomer },
+
+    /* Partner Chargers Management */
+    { method: 'post', path: '/partner-station-list',      handler: partnerStationList },
+    { method: 'post', path: '/partner-station-details',   handler: partnerStationDetail },
+    { method: 'post', path: '/partner-station-form-data', handler: partnerStationFormData },
+    { method: 'post', path: '/partner-station-add',       handler: partnerStationAdd },
+    { method: 'post', path: '/partner-station-edit',      handler: partnerStationEdit },
+    { method: 'post', path: '/all-partner-station-list',  handler: allPartnerStationList },
+    { method: 'post', path: '/partner-charger-list',      handler: partnerChargerList },
+    { method: 'post', path: '/partner-charger-details',   handler: partnerChargerDetail },
+    { method: 'post', path: '/partner-charger-form-data', handler: partnerChargerFormData },
+    { method: 'post', path: '/partner-charger-add',       handler: partnerChargerAdd },
+    { method: 'post', path: '/partner-charger-edit',      handler: partnerChargerEdit },
 
     /* RSA Van Routes */ 
     { method: 'post',  path: '/rsa-van-list',       handler: rsaVanList },

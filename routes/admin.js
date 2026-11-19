@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authenticateAdmin } from "../middleware/admin/authenticationMiddleware.js";
-import { requireAdminModule } from "../middleware/admin/moduleAccessMiddleware.js";
+// import { requireAdminModule } from "../middleware/admin/moduleAccessMiddleware.js";
 import { adminAuthorization } from "../middleware/admin/authorizeMiddleware.js";
 
 import { login, logout, forgotPassword, updatePassword } from "../controller/admin/AuthController.js";
@@ -370,7 +370,7 @@ adminRoutes.forEach(({ method, path, handler }) => {
     if (rule) {
         middlewares.push(handleFileUpload(rule.folder, rule.fields, rule.maxCount));
     }
-    middlewares.push(authenticateAdmin, requireAdminModule);
+    middlewares.push(authenticateAdmin);
     router[method](path, ...middlewares, handler);
 });
 

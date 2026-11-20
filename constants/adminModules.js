@@ -234,6 +234,7 @@ export const ADMIN_ROUTE_TO_MODULE = {
   '/vendor-customer-details': 'vendor_charging',
   '/vendor-customer-edit': 'vendor_charging',
 
+  '/partner-chargers-dashboard': 'partner_chargers',
   '/partner-station-list': 'partner_chargers',
   '/partner-station-details': 'partner_chargers',
   '/partner-station-form-data': 'partner_chargers',

@@ -127,7 +127,7 @@ export const stationDetails = asyncHandler(async (req, resp) => {
         SELECT
             station_id, station_name, station_type, operator_name, address, city, state_emirate,
             country, postal_code, latitude, longitude, contact_person, contact_number,
-            operating_hours, admin_status, description, master_email,
+            operating_hours, admin_status, description, number_of_chargers, master_email,
             (SELECT COUNT(*) FROM partner_chargers WHERE station_id = ? AND status = 1) AS charger_count,
             ${formatDateTimeInQuery(['created_at', 'updated_at'])}
         FROM partner_charging_stations

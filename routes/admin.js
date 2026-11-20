@@ -47,6 +47,7 @@ import { communityList, communityDetail, addCommunity, editCommunity, allCommuni
 import { addVendor, vendorList, vendorDetail, editVendor, allVendorList, addCustomer, customerList, customerDetail, editCustomer } from "../controller/admin/VendorController.js";
 
 import {
+    partnerChargersDashboard,
     partnerStationList,
     partnerStationDetail,
     partnerStationFormData,
@@ -310,6 +311,7 @@ const adminRoutes = [
     { method: 'post',  path: '/vendor-customer-edit',    handler: editCustomer },
 
     /* Partner Chargers Management */
+    { method: 'post', path: '/partner-chargers-dashboard', handler: partnerChargersDashboard },
     { method: 'post', path: '/partner-station-list',      handler: partnerStationList },
     { method: 'post', path: '/partner-station-details',   handler: partnerStationDetail },
     { method: 'post', path: '/partner-station-form-data', handler: partnerStationFormData },

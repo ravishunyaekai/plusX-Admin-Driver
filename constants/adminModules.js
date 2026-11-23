@@ -246,4 +246,9 @@ export const ADMIN_ROUTE_TO_MODULE = {
   '/partner-charger-form-data': 'partner_chargers',
   '/partner-charger-add': 'partner_chargers',
   '/partner-charger-edit': 'partner_chargers',
+  '/partner-session-list': 'partner_chargers',
+  '/partner-session-details': 'partner_chargers',
+  '/partner-alert-list': 'partner_chargers',
+  '/partner-alert-details': 'partner_chargers',
+  '/partner-alert-update': 'partner_chargers',
 };

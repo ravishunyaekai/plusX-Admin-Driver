@@ -521,7 +521,18 @@ export const partnerChargersDashboard = asyncHandler(async (req, resp) => {
 
 export const partnerStationList = async (req, resp) => {
     try {
-        const { page_no = 1, search_text = '' } = mergeParam(req);
+        const { page_no = 1, search_text = '', admin_status = '', status = '' } = mergeParam(req);
+        const adminStatusFilter = String(admin_status || status || '').trim();
+
+        const whereField = ['ps.status'];
+        const whereValue = [1];
+        const whereOperator = ['='];
+        if (adminStatusFilter) {
+            whereField.push('ps.admin_status');
+            whereValue.push(adminStatusFilter);
+            whereOperator.push('=');
+        }
+
         const params = {
             tableName: ' partner_charging_stations AS ps',
             columns: `ps.station_id, ps.station_name, ps.city, ps.contact_number, ps.admin_status,
@@ -533,9 +544,9 @@ export const partnerStationList = async (req, resp) => {
             limit: 10,
             liveSearchFields: ['ps.station_id', 'ps.station_name', 'ps.city'],
             liveSearchTexts: [search_text, search_text, search_text],
-            whereField: ['ps.status'],
-            whereValue: [1],
-            whereOperator: ['='],
+            whereField,
+            whereValue,
+            whereOperator,
         };
         const result = await getPaginatedData(params);
         return resp.json({
@@ -771,7 +782,18 @@ export const allPartnerStationList = asyncHandler(async (req, resp) => {
 
 export const partnerChargerList = async (req, resp) => {
     try {
-        const { page_no = 1, search_text = '' } = mergeParam(req);
+        const { page_no = 1, search_text = '', admin_status = '', status = '' } = mergeParam(req);
+        const adminStatusFilter = String(admin_status || status || '').trim();
+
+        const whereField = ['pc.status'];
+        const whereValue = [1];
+        const whereOperator = ['='];
+        if (adminStatusFilter) {
+            whereField.push('pc.admin_status');
+            whereValue.push(adminStatusFilter);
+            whereOperator.push('=');
+        }
+
         const params = {
             tableName: ' partner_chargers AS pc',
             joinTable: ' partner_charging_stations AS ps',
@@ -785,9 +807,9 @@ export const partnerChargerList = async (req, resp) => {
             limit: 10,
             liveSearchFields: ['pc.charger_id', 'pc.charger_name', 'ps.station_name'],
             liveSearchTexts: [search_text, search_text, search_text],
-            whereField: ['pc.status'],
-            whereValue: [1],
-            whereOperator: ['='],
+            whereField,
+            whereValue,
+            whereOperator,
         };
         const result = await getPaginatedData(params);
         return resp.json({

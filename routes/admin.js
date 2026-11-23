@@ -61,6 +61,14 @@ import {
     partnerChargerEdit,
 } from '../controller/admin/PartnerChargerController.js';
 
+import {
+    partnerChargerSessionList,
+    partnerChargerSessionDetail,
+    partnerChargerAlertList,
+    partnerChargerAlertDetail,
+    partnerChargerAlertUpdate,
+} from '../controller/admin/PartnerChargerSessionController.js';
+
 const router = Router();
 
 const adminAuthRoutes = [
@@ -323,6 +331,11 @@ const adminRoutes = [
     { method: 'post', path: '/partner-charger-form-data', handler: partnerChargerFormData },
     { method: 'post', path: '/partner-charger-add',       handler: partnerChargerAdd },
     { method: 'post', path: '/partner-charger-edit',      handler: partnerChargerEdit },
+    { method: 'post', path: '/partner-session-list',    handler: partnerChargerSessionList },
+    { method: 'post', path: '/partner-session-details', handler: partnerChargerSessionDetail },
+    { method: 'post', path: '/partner-alert-list',      handler: partnerChargerAlertList },
+    { method: 'post', path: '/partner-alert-details',   handler: partnerChargerAlertDetail },
+    { method: 'post', path: '/partner-alert-update',    handler: partnerChargerAlertUpdate },
 
     /* RSA Van Routes */ 
     { method: 'post',  path: '/rsa-van-list',       handler: rsaVanList },

@@ -29,7 +29,10 @@ const corsOptions = {
         'http://localhost:8802',
         'http://localhost:1117',
         'https://partners.shunyaekai.com',
-        'https://partners.plusxelectric.com'
+        'https://partners.plusxelectric.com',
+        'https://csms.shunyaekai.com',
+        'https://csms.plusxelectric.com',
+        'http://localhost:2425'
     ],
     // origin : "*",
     methods: 'GET, POST, PUT, DELETE',
@@ -53,7 +56,15 @@ app.use('/driver', driverRoutes);
 // Community manager APIs (login, dashboard, community details, residents — scoped by community_id)
 app.use('/community', communityRoutes);
 // Station Master portal APIs (credentials on partner_charging_stations.master_*)
-app.use('/partner-station', partnerStationRoutes);
+app.use('/partner', partnerStationRoutes);
+
+// ---------------------------------------------------------------------------
+// Frontend build folders (each is a separate React project output on disk):
+//   build/          — Admin panel (PlusX-React-Admin)
+//   partner-build/  — Community panel (PlusX-React-Community)
+//   csms-build/     — Partner station portal (plusx-partner-panel)
+// Nginx: proxy_set_header Host $host; so req.hostname routing works.
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Community panel UI on partner subdomain (served at root "/")
@@ -74,7 +85,26 @@ app.use((req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// Community panel UI (separate React project build → upload to partner-build/)
+// Partner station portal (csms-build/) on csms subdomain (served at root "/")
+// Testing : https://csms.shunyaekai.com
+// Live    : https://csms.plusxelectric.com
+// Copy plusx-partner-panel build/ → csms-build/
+// APIs on same host: /partner/*
+// Nginx must forward the original host: proxy_set_header Host $host;
+// ---------------------------------------------------------------------------
+const CSMS_HOSTS = ['csms.shunyaekai.com', 'csms.plusxelectric.com'];
+const csmsStatic = express.static(path.join(__dirname, 'csms-build'));
+const csmsIndex  = path.join(__dirname, 'csms-build', 'index.html');
+
+app.use((req, res, next) => {
+    if (CSMS_HOSTS.includes(req.hostname)) {
+        return csmsStatic(req, res, () => res.sendFile(csmsIndex));
+    }
+    next();
+});
+
+// ---------------------------------------------------------------------------
+// Community panel (partner-build/) — alternate path on admin host
 // Accessible at: https://plusx.shunyaekai.com/community-app
 // Community React app must be built with base path "/community-app"
 // ---------------------------------------------------------------------------
@@ -88,7 +118,7 @@ app.get('/community-app/*', function (req, res) {
 });
 
 // ---------------------------------------------------------------------------
-// Admin panel UI (existing React build → upload to build/)
+// Admin panel (build/) — default host (e.g. plusx.shunyaekai.com)
 // Keep this last so it does not catch /community-app or API routes
 // Accessible at: https://plusx.shunyaekai.com/
 // ---------------------------------------------------------------------------

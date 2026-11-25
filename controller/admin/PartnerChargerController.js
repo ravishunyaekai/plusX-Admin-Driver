@@ -54,10 +54,35 @@ const INPUT_SUPPLY_OPTIONS = [
 
 const STATION_DETAIL_COLUMNS = `
     station_id, station_name, station_type, operator_name, address, city, state_emirate,
-    country, postal_code, latitude, longitude, contact_person, contact_number,
+    country, postal_code, latitude, longitude, contact_person, country_code, contact_number,
     operating_hours, admin_status, description, number_of_chargers, master_email, status,
     ${formatDateTimeInQuery(['created_at', 'updated_at'])}
 `;
+
+const normalizeStationCountryCode = (value) => {
+    const code = String(value ?? '').trim();
+    if (!code) return '+971';
+    return code.startsWith('+') ? code : `+${code}`;
+};
+
+/** Store local number only; strip leading country_code if the client sent a combined value. */
+const normalizeStationContactNumber = (contactNumber, countryCode) => {
+    let local = String(contactNumber ?? '').trim();
+    if (!local) return null;
+
+    const code = normalizeStationCountryCode(countryCode);
+    const digitsOnly = code.replace(/\D/g, '');
+    const localDigits = local.replace(/\D/g, '');
+
+    if (digitsOnly && localDigits.startsWith(digitsOnly)) {
+        local = localDigits.slice(digitsOnly.length);
+    } else if (local.startsWith(code)) {
+        local = local.slice(code.length).replace(/^[\s\-]+/, '');
+    }
+
+    local = local.replace(/^[\s\-]+/, '').trim();
+    return local || null;
+};
 
 const CHARGER_DETAIL_COLUMNS = `
     charger_id, charger_name, station_id, manufacturer, model, serial_number,
@@ -137,7 +162,11 @@ const parsePartnerStationBody = (body) => {
         latitude: body.latitude,
         longitude: body.longitude,
         contact_person: String(body.contact_person ?? '').trim(),
-        contact_number: String(body.contact_number ?? '').trim() || null,
+        country_code: normalizeStationCountryCode(body.country_code),
+        contact_number: normalizeStationContactNumber(
+            body.contact_number ?? body.contact_no ?? body.mobile,
+            body.country_code
+        ),
         operating_hours: String(body.operating_hours ?? body.operating_hour ?? '').trim(),
         admin_status:
             normalizeStationAdminStatus(body.admin_status ?? body.administrative_status ?? '') || 'Active',
@@ -535,7 +564,7 @@ export const partnerStationList = async (req, resp) => {
 
         const params = {
             tableName: ' partner_charging_stations AS ps',
-            columns: `ps.station_id, ps.station_name, ps.city, ps.contact_number, ps.admin_status,
+            columns: `ps.station_id, ps.station_name, ps.city, ps.country_code, ps.contact_number, ps.admin_status,
                 (SELECT COUNT(*) FROM partner_chargers AS pc
                     WHERE pc.station_id = ps.station_id AND pc.status = 1) AS charger_count`,
             sortColumn: 'ps.id',
@@ -624,6 +653,7 @@ export const partnerStationAdd = asyncHandler(async (req, resp) => {
             country,
             postal_code,
             contact_person,
+            country_code,
             contact_number,
             operating_hours,
             admin_status,
@@ -650,8 +680,8 @@ export const partnerStationAdd = asyncHandler(async (req, resp) => {
             [
                 'station_id', 'station_name', 'station_type', 'operator_name', 'address', 'city',
                 'state_emirate', 'country', 'postal_code', 'latitude', 'longitude', 'contact_person',
-                'contact_number', 'operating_hours', 'admin_status', 'description', 'number_of_chargers',
-                'master_email', 'master_password', 'status',
+                'country_code', 'contact_number', 'operating_hours', 'admin_status', 'description',
+                'number_of_chargers', 'master_email', 'master_password', 'status',
             ],
             [
                 station_id,
@@ -666,6 +696,7 @@ export const partnerStationAdd = asyncHandler(async (req, resp) => {
                 latitude,
                 longitude,
                 contact_person,
+                country_code,
                 contact_number,
                 operating_hours,
                 admin_status,
@@ -713,6 +744,7 @@ export const partnerStationEdit = asyncHandler(async (req, resp) => {
             country,
             postal_code,
             contact_person,
+            country_code,
             contact_number,
             operating_hours,
             admin_status,
@@ -745,6 +777,7 @@ export const partnerStationEdit = asyncHandler(async (req, resp) => {
             latitude,
             longitude,
             contact_person,
+            country_code,
             contact_number,
             operating_hours,
             admin_status,

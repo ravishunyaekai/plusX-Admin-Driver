@@ -7,7 +7,7 @@ import moment from 'moment';
 
 const ALERT_ADMIN_STATUSES = ['Open', 'Acknowledged', 'Resolved'];
 
-const formatDurationSeconds = (seconds) => {
+export const formatDurationSeconds = (seconds) => {
     const sec = Math.max(Number(seconds) || 0, 0);
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
@@ -17,7 +17,7 @@ const formatDurationSeconds = (seconds) => {
     return `${s}s`;
 };
 
-const parseDisplaySessionId = (raw) => {
+export const parseDisplaySessionId = (raw) => {
     const s = String(raw ?? '').trim();
     if (!s) return null;
     if (/^S-/i.test(s)) return s.slice(2);
@@ -25,7 +25,7 @@ const parseDisplaySessionId = (raw) => {
 };
 
 /** Session list "User" column — station identity (no app rider). */
-const sessionUserLabel = (stationId, stationName) => {
+export const sessionUserLabel = (stationId, stationName) => {
     const sid = String(stationId ?? '').trim();
     const sname = String(stationName ?? '').trim();
     if (sid && sname) return `${sid} — ${sname}`;
@@ -33,7 +33,7 @@ const sessionUserLabel = (stationId, stationName) => {
 };
 
 /** kWh delivered in session window from cumulative meter readings */
-async function resolveSessionEnergyKwh(chargerId, startRaw, endRaw) {
+export async function resolveSessionEnergyKwh(chargerId, startRaw, endRaw) {
     const [rows] = await db.execute(
         `
         SELECT energy
@@ -73,7 +73,7 @@ export async function backfillPartnerSessionStations() {
     `);
 }
 
-const sessionGroupSubquery = `
+export const sessionGroupSubquery = `
     SELECT
         charger_id,
         session_id,
@@ -86,7 +86,7 @@ const sessionGroupSubquery = `
     GROUP BY charger_id, session_id
 `;
 
-const latestStatusJoin = `
+export const latestStatusJoin = `
     LEFT JOIN (
         SELECT sh.charger_id, sh.session_id, sh.status, sh.error_code, sh.connector_id
         FROM partner_charger_session_history AS sh

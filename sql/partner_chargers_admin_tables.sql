@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS partner_charging_stations (
     latitude           DECIMAL(10, 6) NOT NULL,
     longitude          DECIMAL(10, 6) NOT NULL,
     contact_person     VARCHAR(150) NOT NULL,
-    contact_number     VARCHAR(30)  NULL DEFAULT NULL,
+    country_code       VARCHAR(10)  NOT NULL DEFAULT '+971' COMMENT 'E.164 dial code e.g. +971',
+    contact_number     VARCHAR(30)  NULL DEFAULT NULL COMMENT 'Local number without country code',
     operating_hours    VARCHAR(80)  NOT NULL,
     admin_status       VARCHAR(40)  NOT NULL DEFAULT 'Active',
     description        TEXT         NOT NULL,
@@ -96,3 +97,5 @@ ALTER TABLE partner_chargers
     MODIFY COLUMN max_output_voltage_v DECIMAL(8, 2) NOT NULL,
     MODIFY COLUMN installation_date    DATE         NOT NULL,
     MODIFY COLUMN installation_notes   TEXT         NOT NULL;
+
+-- New installs include country_code above; existing DBs: sql/partner_chargers_station_country_code.sql

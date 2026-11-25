@@ -1,17 +1,19 @@
 -- Dev seed: partner chargers (sample), IoT session + data history, alerts
 -- Prereq: run partner_chargers_admin_tables.sql and partner_chargers_iot_tables.sql (and alerts table).
 -- Prereq: at least one station ST-01 (add via admin or insert below).
+-- More stations/chargers/sessions: sql/partner_chargers_seed_extra.sql
 
 -- Optional minimal station if missing (password = bcrypt of "password" — change in prod)
 INSERT INTO partner_charging_stations (
     station_id, station_name, station_type, operator_name, address, city, state_emirate, country,
-    latitude, longitude, contact_person, operating_hours, admin_status, description,
-    number_of_chargers, master_email, master_password, status
+    latitude, longitude, contact_person, country_code, contact_number, operating_hours, admin_status,
+    description, number_of_chargers, master_email, master_password, status
 )
 SELECT
     'ST-01', 'PlusX Demo Station', 'Public Station', 'PLUSX',
     'd55, production city', 'Dubai', 'Abu Dhabi', 'UAE',
-    24.856556, 54.945917, 'Demo Contact', '9 AM - 9 PM', 'Active', 'Seed station for IoT demos',
+    24.856556, 54.945917, 'Demo Contact', '+971', '501112233', '9 AM - 9 PM', 'Active',
+    'Seed station for IoT demos',
     2, 'demo-station@yopmail.com',
     '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
     1

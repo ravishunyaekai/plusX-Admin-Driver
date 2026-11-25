@@ -6,6 +6,18 @@ import { formatDateTimeInQuery, mergeParam, asyncHandler } from '../../utils.js'
 import validateFields from '../../validation.js';
 import { assertStationScope } from '../../middleware/partnerStation/authenticationMiddleware.js';
 
+const DASHBOARD_COUNT_CARD_META = [
+    { key: 'total_chargers', label: 'Total Chargers' },
+    { key: 'available_chargers', label: 'Available Chargers' },
+    { key: 'currently_charging', label: 'Currently Charging' },
+    { key: 'faulty_chargers', label: 'Faulty Chargers' },
+];
+
+const dashboardCount = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+};
+
 dotenv.config();
 
 export const login = async (req, resp) => {
@@ -21,7 +33,7 @@ export const login = async (req, resp) => {
         const [rows] = await db.execute(`
             SELECT
                 id, station_id, station_name, master_email, master_password,
-                admin_status, city, country, address, contact_number, status,
+                admin_status, city, country, address, country_code, contact_number, status,
                 ${formatDateTimeInQuery(['created_at', 'updated_at'])}
             FROM partner_charging_stations
             WHERE master_email = ? AND status = 1
@@ -78,6 +90,7 @@ export const login = async (req, resp) => {
                 city: station.city,
                 country: station.country,
                 address: station.address,
+                country_code: station.country_code,
                 contact_number: station.contact_number,
             },
             Token: process.env.CUSTOM_TOKEN,
@@ -126,7 +139,7 @@ export const stationDetails = asyncHandler(async (req, resp) => {
     const [rows] = await db.execute(`
         SELECT
             station_id, station_name, station_type, operator_name, address, city, state_emirate,
-            country, postal_code, latitude, longitude, contact_person, contact_number,
+            country, postal_code, latitude, longitude, contact_person, country_code, contact_number,
             operating_hours, admin_status, description, number_of_chargers, master_email,
             (SELECT COUNT(*) FROM partner_chargers WHERE station_id = ? AND status = 1) AS charger_count,
             ${formatDateTimeInQuery(['created_at', 'updated_at'])}
@@ -144,5 +157,82 @@ export const stationDetails = asyncHandler(async (req, resp) => {
         code: 200,
         message: ['Station details fetched successfully!'],
         data: rows[0],
+    });
+});
+
+/** Station master dashboard — charger counts + map pin for the logged-in station. */
+export const getDashboardData = asyncHandler(async (req, resp) => {
+    const { station_id } = mergeParam(req);
+    const { isValid, errors } = validateFields(mergeParam(req), { station_id: ['required'] });
+    if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
+    if (!assertStationScope(req, station_id, resp)) return;
+
+    const sid = String(station_id).trim();
+
+    const [countRows] = await db.execute(`
+        SELECT
+            COUNT(*) AS total_chargers,
+            COALESCE(SUM(admin_status = 'Available'), 0) AS available_chargers,
+            COALESCE(SUM(admin_status = 'Charging'), 0) AS currently_charging,
+            COALESCE(SUM(admin_status = 'Faulty'), 0) AS faulty_chargers
+        FROM partner_chargers
+        WHERE station_id = ? AND status = 1
+    `, [sid]);
+
+    const [stationRows] = await db.execute(`
+        SELECT
+            ps.station_id, ps.station_name, ps.city, ps.admin_status,
+            ps.latitude, ps.longitude,
+            (SELECT COUNT(*) FROM partner_chargers AS pc
+                WHERE pc.station_id = ps.station_id AND pc.status = 1) AS charger_count
+        FROM partner_charging_stations AS ps
+        WHERE ps.station_id = ? AND ps.status = 1
+        LIMIT 1
+    `, [sid]);
+
+    if (!stationRows.length) {
+        return resp.json({ status: 0, code: 404, message: 'Station not found.' });
+    }
+
+    const raw = countRows[0] || {};
+    const counts = {
+        total_chargers: dashboardCount(raw.total_chargers),
+        available_chargers: dashboardCount(raw.available_chargers),
+        currently_charging: dashboardCount(raw.currently_charging),
+        faulty_chargers: dashboardCount(raw.faulty_chargers),
+    };
+
+    const count_cards = DASHBOARD_COUNT_CARD_META.map(({ key, label }) => ({
+        key,
+        label,
+        count: counts[key],
+    }));
+
+    const stations = stationRows
+        .filter((row) => row.latitude != null && row.longitude != null)
+        .map((row) => {
+            const lat = Number(row.latitude);
+            const lng = Number(row.longitude);
+            return {
+                station_id: row.station_id,
+                station_name: row.station_name,
+                city: row.city,
+                admin_status: row.admin_status,
+                charger_count: dashboardCount(row.charger_count),
+                latitude: lat,
+                longitude: lng,
+                location: { lat, lng },
+            };
+        });
+
+    return resp.json({
+        status: 1,
+        code: 200,
+        message: ['Partner chargers dashboard fetched successfully!'],
+        data: {
+            counts,
+            count_cards,
+            stations,
+        },
     });
 });

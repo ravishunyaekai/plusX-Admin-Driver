@@ -84,7 +84,7 @@ WHERE NOT EXISTS (
 INSERT INTO partner_charger_session_history (
     session_id, charger_id, connector_id, error_code, status, created_at
 )
-SELECT '2', 'PLX-CH-4', 1, 'E-101', 'started', DATE_SUB(NOW(), INTERVAL 3 HOUR)
+SELECT '2', 'PLX-CH-4', 1, NULL, 'started', DATE_SUB(NOW(), INTERVAL 3 HOUR)
 FROM DUAL
 WHERE NOT EXISTS (
     SELECT 1 FROM partner_charger_session_history
@@ -94,7 +94,7 @@ WHERE NOT EXISTS (
 INSERT INTO partner_charger_session_history (
     session_id, charger_id, connector_id, error_code, status, created_at
 )
-SELECT '2', 'PLX-CH-4', 1, 'E-101', 'fault', DATE_SUB(NOW(), INTERVAL 2 HOUR) + INTERVAL 50 MINUTE
+SELECT '2', 'PLX-CH-4', 1, 'AC charger ground fault', 'fault', DATE_SUB(NOW(), INTERVAL 2 HOUR) + INTERVAL 50 MINUTE
 FROM DUAL
 WHERE NOT EXISTS (
     SELECT 1 FROM partner_charger_session_history
@@ -222,23 +222,14 @@ SET sh.station_id = ps.station_id,
     sh.station_name = ps.station_name
 WHERE sh.station_id IS NULL OR sh.station_name IS NULL;
 
--- Alerts (optional)
-INSERT INTO partner_charger_alerts (
-    alert_id, charger_id, station_id, station_name, connector_id,
-    alert_type, severity, error_code, title, description, admin_status, status
+-- Alerts: add session history rows with error_code text (see PLX-CH-4 session 2 above).
+-- Example high-current alert for ST-03:
+INSERT INTO partner_charger_session_history (
+    session_id, charger_id, connector_id, error_code, status, created_at
 )
-SELECT 'ALT-03', 'PLX-CH-4', 'ST-02', 'Mall of Emirates EV Hub', 1,
-    'Fault', 'Critical', 'E-101', 'AC charger ground fault',
-    'Connector 1 locked out after E-101 during session S-2.', 'Open', 1
+SELECT '4', 'PLX-CH-5', 1, 'High current draw', 'fault', DATE_SUB(NOW(), INTERVAL 90 MINUTE)
 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM partner_charger_alerts WHERE alert_id = 'ALT-03');
-
-INSERT INTO partner_charger_alerts (
-    alert_id, charger_id, station_id, station_name, connector_id,
-    alert_type, severity, error_code, title, description, admin_status, status
-)
-SELECT 'ALT-04', 'PLX-CH-5', 'ST-03', 'Sharjah Highway Plaza', 1,
-    'Overcurrent', 'Warning', 'W-402', 'High current draw',
-    'Sustained > 95% rated current for 5 min (demo).', 'Open', 1
-FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM partner_charger_alerts WHERE alert_id = 'ALT-04');
+WHERE NOT EXISTS (
+    SELECT 1 FROM partner_charger_session_history
+    WHERE charger_id = 'PLX-CH-5' AND session_id = '4' AND status = 'fault'
+);

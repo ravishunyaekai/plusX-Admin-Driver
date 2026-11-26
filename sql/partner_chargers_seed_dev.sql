@@ -57,10 +57,10 @@ INSERT INTO partner_charger_session_history (
 INSERT INTO partner_charger_session_history (
     session_id, charger_id, connector_id, error_code, status, created_at
 ) VALUES
-('2', 'PLX-CH-1', 2, 'E-204', 'started',  DATE_SUB(NOW(), INTERVAL 40 MINUTE)),
-('2', 'PLX-CH-1', 2, 'E-204', 'charging', DATE_SUB(NOW(), INTERVAL 35 MINUTE)),
-('2', 'PLX-CH-1', 2, 'E-204', 'fault',    DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
-('2', 'PLX-CH-1', 2, 'E-204', 'failed',   DATE_SUB(NOW(), INTERVAL 28 MINUTE));
+('2', 'PLX-CH-1', 2, NULL, 'started',  DATE_SUB(NOW(), INTERVAL 40 MINUTE)),
+('2', 'PLX-CH-1', 2, NULL, 'charging', DATE_SUB(NOW(), INTERVAL 35 MINUTE)),
+('2', 'PLX-CH-1', 2, 'AC charger ground fault', 'fault',    DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
+('2', 'PLX-CH-1', 2, 'AC charger ground fault', 'failed',   DATE_SUB(NOW(), INTERVAL 28 MINUTE));
 
 -- Session 3 on PLX-CH-2: in progress (charging)
 INSERT INTO partner_charger_session_history (
@@ -87,22 +87,4 @@ INSERT INTO partner_charger_data_history (
 ('PLX-CH-2', 1, 0.0000,  0.00, 400.00, 0.00, DATE_SUB(NOW(), INTERVAL 18 MINUTE)),
 ('PLX-CH-2', 1, 8.4000, 45.00, 398.00, 112.50, DATE_SUB(NOW(), INTERVAL 8 MINUTE));
 
-INSERT INTO partner_charger_alerts (
-    alert_id, charger_id, station_id, station_name, connector_id,
-    alert_type, severity, error_code, title, description, admin_status, status
-)
-SELECT 'ALT-01', 'PLX-CH-1', 'ST-01', 'PlusX Demo Station', 2,
-    'Fault', 'Critical', 'E-204', 'Connector fault during session',
-    'Session S-2 ended with error E-204 on connector 2.', 'Open', 1
-FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM partner_charger_alerts WHERE alert_id = 'ALT-01');
-
-INSERT INTO partner_charger_alerts (
-    alert_id, charger_id, station_id, station_name, connector_id,
-    alert_type, severity, error_code, title, description, admin_status, status
-)
-SELECT 'ALT-02', 'PLX-CH-2', 'ST-01', 'PlusX Demo Station', 1,
-    'Communication', 'Warning', NULL, 'Intermittent telemetry',
-    'Meter samples delayed > 2 minutes (demo seed).', 'Acknowledged', 1
-FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM partner_charger_alerts WHERE alert_id = 'ALT-02');
+-- Alerts UI reads partner_charger_session_history rows where error_code is set (see session 2 above).

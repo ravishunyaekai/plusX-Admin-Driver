@@ -2,13 +2,33 @@ import { formatDateTimeInQuery, formatDateInQuery, mergeParam, asyncHandler } fr
 import { queryDB, getPaginatedData } from '../../dbUtils.js';
 import validateFields from '../../validation.js';
 import { assertStationScope } from '../../middleware/partnerStation/authenticationMiddleware.js';
+import { appendCreatedAtRangeWhere } from '../admin/PartnerChargerController.js';
 
 export const chargerList = asyncHandler(async (req, resp) => {
-    const { station_id, page_no = 1, search_text = '' } = mergeParam(req);
+    const {
+        station_id,
+        page_no = 1,
+        search_text = '',
+        admin_status = '',
+        status = '',
+        start_date = '',
+        end_date = '',
+    } = mergeParam(req);
+    const adminStatusFilter = String(admin_status || status || '').trim();
 
     const { isValid, errors } = validateFields(mergeParam(req), { station_id: ['required'] });
     if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
     if (!assertStationScope(req, station_id, resp)) return;
+
+    const whereField = ['pc.station_id', 'pc.status'];
+    const whereValue = [station_id, 1];
+    const whereOperator = ['=', '='];
+    if (adminStatusFilter) {
+        whereField.push('pc.admin_status');
+        whereValue.push(adminStatusFilter);
+        whereOperator.push('=');
+    }
+    appendCreatedAtRangeWhere(whereField, whereValue, whereOperator, start_date, end_date, 'pc.created_at');
 
     const result = await getPaginatedData({
         tableName: ' partner_chargers AS pc',
@@ -23,9 +43,9 @@ export const chargerList = asyncHandler(async (req, resp) => {
         liveSearchFields: ['pc.charger_id', 'pc.charger_name', 'ps.station_name'],
         liveSearchTexts: [search_text, search_text, search_text],
         limit: 10,
-        whereField: ['pc.station_id', 'pc.status'],
-        whereValue: [station_id, 1],
-        whereOperator: ['=', '='],
+        whereField,
+        whereValue,
+        whereOperator,
     });
 
     return resp.json({

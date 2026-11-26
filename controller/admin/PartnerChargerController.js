@@ -52,6 +52,27 @@ const INPUT_SUPPLY_OPTIONS = [
     'Industrial',
 ];
 
+/** List APIs: `start_date` / `end_date` → `created_at` bounds (same TZ adjustment as other admin lists). */
+export const resolvePartnerListCreatedAtRange = (start_date, end_date) => {
+    if (!start_date || !end_date) return null;
+    const startDay = moment(start_date, ['YYYY-MM-DD', 'DD-MM-YYYY'], true);
+    const endDay = moment(end_date, ['YYYY-MM-DD', 'DD-MM-YYYY'], true);
+    if (!startDay.isValid() || !endDay.isValid()) return null;
+    const start = moment(`${startDay.format('YYYY-MM-DD')} 00:00:01`, 'YYYY-MM-DD HH:mm:ss')
+        .subtract(4, 'hours')
+        .format('YYYY-MM-DD HH:mm:ss');
+    const end = `${endDay.format('YYYY-MM-DD')} 19:59:59`;
+    return { start, end };
+};
+
+export const appendCreatedAtRangeWhere = (whereField, whereValue, whereOperator, start_date, end_date, column) => {
+    const range = resolvePartnerListCreatedAtRange(start_date, end_date);
+    if (!range) return;
+    whereField.push(column, column);
+    whereValue.push(range.start, range.end);
+    whereOperator.push('>=', '<=');
+};
+
 const STATION_DETAIL_COLUMNS = `
     station_id, station_name, station_type, operator_name, address, city, state_emirate,
     country, postal_code, latitude, longitude, contact_person, country_code, contact_number,
@@ -550,7 +571,14 @@ export const partnerChargersDashboard = asyncHandler(async (req, resp) => {
 
 export const partnerStationList = async (req, resp) => {
     try {
-        const { page_no = 1, search_text = '', admin_status = '', status = '' } = mergeParam(req);
+        const {
+            page_no = 1,
+            search_text = '',
+            admin_status = '',
+            status = '',
+            start_date = '',
+            end_date = '',
+        } = mergeParam(req);
         const adminStatusFilter = String(admin_status || status || '').trim();
 
         const whereField = ['ps.status'];
@@ -561,6 +589,7 @@ export const partnerStationList = async (req, resp) => {
             whereValue.push(adminStatusFilter);
             whereOperator.push('=');
         }
+        appendCreatedAtRangeWhere(whereField, whereValue, whereOperator, start_date, end_date, 'ps.created_at');
 
         const params = {
             tableName: ' partner_charging_stations AS ps',
@@ -815,7 +844,14 @@ export const allPartnerStationList = asyncHandler(async (req, resp) => {
 
 export const partnerChargerList = async (req, resp) => {
     try {
-        const { page_no = 1, search_text = '', admin_status = '', status = '' } = mergeParam(req);
+        const {
+            page_no = 1,
+            search_text = '',
+            admin_status = '',
+            status = '',
+            start_date = '',
+            end_date = '',
+        } = mergeParam(req);
         const adminStatusFilter = String(admin_status || status || '').trim();
 
         const whereField = ['pc.status'];
@@ -826,6 +862,7 @@ export const partnerChargerList = async (req, resp) => {
             whereValue.push(adminStatusFilter);
             whereOperator.push('=');
         }
+        appendCreatedAtRangeWhere(whereField, whereValue, whereOperator, start_date, end_date, 'pc.created_at');
 
         const params = {
             tableName: ' partner_chargers AS pc',

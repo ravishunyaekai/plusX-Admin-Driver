@@ -62,7 +62,7 @@ app.use('/partner', partnerStationRoutes);
 // Frontend build folders (each is a separate React project output on disk):
 //   build/          — Admin panel (PlusX-React-Admin)
 //   partner-build/  — Community panel (PlusX-React-Community)
-//   csms-build/     — Partner station portal (plusx-partner-panel)
+//   csms-build/build/ — Partner station portal (plusx-partner-panel)
 // Nginx: proxy_set_header Host $host; so req.hostname routing works.
 // ---------------------------------------------------------------------------
 
@@ -88,13 +88,13 @@ app.use((req, res, next) => {
 // Partner station portal (csms-build/) on csms subdomain (served at root "/")
 // Testing : https://csms.shunyaekai.com
 // Live    : https://csms.plusxelectric.com
-// Copy plusx-partner-panel build/ → csms-build/
+// Copy plusx-partner-panel build/ → csms-build/build/
 // APIs on same host: /partner/*
 // Nginx must forward the original host: proxy_set_header Host $host;
 // ---------------------------------------------------------------------------
 const CSMS_HOSTS = ['csms.shunyaekai.com', 'csms.plusxelectric.com'];
-const csmsStatic = express.static(path.join(__dirname, 'csms-build'));
-const csmsIndex  = path.join(__dirname, 'csms-build', 'index.html');
+const csmsStatic = express.static(path.join(__dirname, 'csms-build', 'build'));
+const csmsIndex  = path.join(__dirname, 'csms-build', 'build', 'index.html');
 
 app.use((req, res, next) => {
     if (CSMS_HOSTS.includes(req.hostname)) {

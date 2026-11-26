@@ -4,6 +4,7 @@ import validateFields from '../../validation.js';
 import { getPaginatedData, queryDB, updateRecord } from '../../dbUtils.js';
 import { tryCatchErrorHandler } from '../../middleware/errorHandler.js';
 import moment from 'moment';
+import { appendCreatedAtRangeWhere, resolvePartnerListCreatedAtRange } from './PartnerChargerController.js';
 
 const ALERT_ADMIN_STATUSES = ['Open', 'Acknowledged', 'Resolved'];
 
@@ -129,13 +130,10 @@ export const partnerChargerSessionList = asyncHandler(async (req, resp) => {
             where += ' AND g.station_id = ?';
             params.push(String(station_id).trim());
         }
-        if (start_date && end_date) {
-            const start = moment(start_date, ['YYYY-MM-DD', 'DD-MM-YYYY'], true).format('YYYY-MM-DD');
-            const end = moment(end_date, ['YYYY-MM-DD', 'DD-MM-YYYY'], true).format('YYYY-MM-DD');
-            if (start && end) {
-                where += ' AND DATE(g.start_time) >= ? AND DATE(g.start_time) <= ?';
-                params.push(start, end);
-            }
+        const createdRange = resolvePartnerListCreatedAtRange(start_date, end_date);
+        if (createdRange) {
+            where += ' AND g.start_time >= ? AND g.start_time <= ?';
+            params.push(createdRange.start, createdRange.end);
         }
 
         const statusFilter = String(status ?? '').trim();
@@ -304,7 +302,14 @@ export const partnerChargerSessionDetail = asyncHandler(async (req, resp) => {
 
 export const partnerChargerAlertList = async (req, resp) => {
     try {
-        const { page_no = 1, search_text = '', admin_status = '', severity = '' } = mergeParam(req);
+        const {
+            page_no = 1,
+            search_text = '',
+            admin_status = '',
+            severity = '',
+            start_date = '',
+            end_date = '',
+        } = mergeParam(req);
 
         const whereField = ['status'];
         const whereValue = [1];
@@ -320,6 +325,7 @@ export const partnerChargerAlertList = async (req, resp) => {
             whereValue.push(String(severity).trim());
             whereOperator.push('=');
         }
+        appendCreatedAtRangeWhere(whereField, whereValue, whereOperator, start_date, end_date, 'created_at');
 
         const params = {
             tableName: ' partner_charger_alerts',

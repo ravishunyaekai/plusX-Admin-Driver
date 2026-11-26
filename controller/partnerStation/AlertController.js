@@ -2,6 +2,7 @@ import { formatDateTimeInQuery, mergeParam, asyncHandler } from '../../utils.js'
 import { queryDB, getPaginatedData } from '../../dbUtils.js';
 import validateFields from '../../validation.js';
 import { assertStationScope } from '../../middleware/partnerStation/authenticationMiddleware.js';
+import { appendCreatedAtRangeWhere } from '../admin/PartnerChargerController.js';
 
 const ALERT_ADMIN_STATUSES = ['Open', 'Acknowledged', 'Resolved'];
 
@@ -12,6 +13,8 @@ export const alertList = asyncHandler(async (req, resp) => {
         search_text = '',
         admin_status = '',
         severity = '',
+        start_date = '',
+        end_date = '',
     } = mergeParam(req);
 
     const { isValid, errors } = validateFields(mergeParam(req), { station_id: ['required'] });
@@ -32,6 +35,7 @@ export const alertList = asyncHandler(async (req, resp) => {
         whereValue.push(String(severity).trim());
         whereOperator.push('=');
     }
+    appendCreatedAtRangeWhere(whereField, whereValue, whereOperator, start_date, end_date, 'created_at');
 
     const result = await getPaginatedData({
         tableName: ' partner_charger_alerts',

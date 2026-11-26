@@ -4,6 +4,7 @@ import { queryDB } from '../../dbUtils.js';
 import validateFields from '../../validation.js';
 import { assertStationScope } from '../../middleware/partnerStation/authenticationMiddleware.js';
 import moment from 'moment';
+import { resolvePartnerListCreatedAtRange } from '../admin/PartnerChargerController.js';
 import {
     backfillPartnerSessionStations,
     formatDurationSeconds,
@@ -42,13 +43,10 @@ export const sessionList = asyncHandler(async (req, resp) => {
         )`;
         params.push(like, like, like);
     }
-    if (start_date && end_date) {
-        const start = moment(start_date, ['YYYY-MM-DD', 'DD-MM-YYYY'], true).format('YYYY-MM-DD');
-        const end = moment(end_date, ['YYYY-MM-DD', 'DD-MM-YYYY'], true).format('YYYY-MM-DD');
-        if (start && end) {
-            where += ' AND DATE(g.start_time) >= ? AND DATE(g.start_time) <= ?';
-            params.push(start, end);
-        }
+    const createdRange = resolvePartnerListCreatedAtRange(start_date, end_date);
+    if (createdRange) {
+        where += ' AND g.start_time >= ? AND g.start_time <= ?';
+        params.push(createdRange.start, createdRange.end);
     }
 
     const statusFilter = String(status ?? '').trim();

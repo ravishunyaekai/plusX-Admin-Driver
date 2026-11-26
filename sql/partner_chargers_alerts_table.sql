@@ -1,5 +1,7 @@
--- Partner charger alerts (admin / optional IoT integration)
--- Distinct from session events: operational faults, offline, comms, etc.
+-- DEPRECATED — Alerts are served from partner_charger_session_history.error_code.
+-- IoT writes human-readable fault messages on session rows; list APIs no longer use this table.
+-- Safe to DROP after confirming no legacy data is needed:
+--   DROP TABLE IF EXISTS partner_charger_alerts;
 
 CREATE TABLE IF NOT EXISTS partner_charger_alerts (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

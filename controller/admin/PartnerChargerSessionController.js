@@ -1,12 +1,121 @@
 import db from '../../config/db.js';
 import { mergeParam, formatDateTimeInQuery, asyncHandler } from '../../utils.js';
 import validateFields from '../../validation.js';
-import { getPaginatedData, queryDB, updateRecord } from '../../dbUtils.js';
+import { queryDB } from '../../dbUtils.js';
 import { tryCatchErrorHandler } from '../../middleware/errorHandler.js';
 import moment from 'moment';
-import { appendCreatedAtRangeWhere, resolvePartnerListCreatedAtRange } from './PartnerChargerController.js';
+import { resolvePartnerListCreatedAtRange } from './PartnerChargerController.js';
 
-const ALERT_ADMIN_STATUSES = ['Open', 'Acknowledged', 'Resolved'];
+const SESSION_ALERT_ERROR_PREDICATE = `sh.error_code IS NOT NULL AND TRIM(sh.error_code) <> ''`;
+
+/** Alerts = session history rows where IoT set a human-readable error_code (fault message). */
+export const mapSessionHistoryAlertRow = (row) => ({
+    alert_id: String(row.id),
+    id: row.id,
+    time: row.created_at,
+    message: row.error_code,
+    title: row.error_code,
+    error_code: row.error_code,
+    station_name: row.station_name,
+    station_id: row.station_id,
+    charger_id: row.charger_id,
+    session_id: row.session_id,
+    display_session_id: row.session_id ? `S-${row.session_id}` : '',
+    connector_id: row.connector_id,
+    status: row.status,
+    created_at: row.created_at,
+});
+
+export async function listPartnerSessionHistoryAlerts({
+    page_no = 1,
+    search_text = '',
+    status = '',
+    station_id = '',
+    start_date = '',
+    end_date = '',
+    limit = 10,
+} = {}) {
+    await backfillPartnerSessionStations();
+
+    const pageSize = Math.max(Number(limit) || 10, 1);
+    const offset = (Math.max(Number(page_no), 1) - 1) * pageSize;
+    const params = [];
+    let where = ` WHERE ${SESSION_ALERT_ERROR_PREDICATE} `;
+
+    if (station_id) {
+        where += ' AND sh.station_id = ?';
+        params.push(String(station_id).trim());
+    }
+    if (status) {
+        where += ' AND LOWER(sh.status) = LOWER(?)';
+        params.push(String(status).trim());
+    }
+    if (search_text) {
+        const like = `%${String(search_text).trim()}%`;
+        where += ` AND (
+            sh.error_code LIKE ? OR sh.charger_id LIKE ? OR sh.station_name LIKE ?
+            OR sh.session_id LIKE ? OR CONCAT('S-', sh.session_id) LIKE ?
+        )`;
+        params.push(like, like, like, like, like);
+    }
+    const createdRange = resolvePartnerListCreatedAtRange(start_date, end_date);
+    if (createdRange) {
+        where += ' AND sh.created_at >= ? AND sh.created_at <= ?';
+        params.push(createdRange.start, createdRange.end);
+    }
+
+    const countSql = `
+        SELECT COUNT(*) AS total
+        FROM partner_charger_session_history AS sh
+        ${where}
+    `;
+    const [[{ total }]] = await db.execute(countSql, params);
+
+    const listSql = `
+        SELECT
+            sh.id, sh.charger_id, sh.session_id, sh.connector_id, sh.error_code, sh.status,
+            sh.station_id, sh.station_name,
+            ${formatDateTimeInQuery(['sh.created_at'])}
+        FROM partner_charger_session_history AS sh
+        ${where}
+        ORDER BY sh.created_at DESC
+        LIMIT ${pageSize} OFFSET ${offset}
+    `;
+    const [rows] = await db.execute(listSql, params);
+    const totalNum = Number(total) || 0;
+
+    return {
+        data: rows.map(mapSessionHistoryAlertRow),
+        total: totalNum,
+        totalPage: Math.max(Math.ceil(totalNum / pageSize), 1),
+    };
+}
+
+export async function getPartnerSessionHistoryAlertById(alertId, { station_id = '' } = {}) {
+    await backfillPartnerSessionStations();
+    const id = Number(alertId);
+    if (!Number.isFinite(id) || id <= 0) return null;
+
+    const params = [id];
+    let where = ` WHERE sh.id = ? AND ${SESSION_ALERT_ERROR_PREDICATE} `;
+    if (station_id) {
+        where += ' AND sh.station_id = ?';
+        params.push(String(station_id).trim());
+    }
+
+    return queryDB(
+        `
+        SELECT
+            sh.id, sh.charger_id, sh.session_id, sh.connector_id, sh.error_code, sh.status,
+            sh.station_id, sh.station_name,
+            ${formatDateTimeInQuery(['sh.created_at'])}
+        FROM partner_charger_session_history AS sh
+        ${where}
+        LIMIT 1
+        `,
+        params
+    );
+}
 
 export const formatDurationSeconds = (seconds) => {
     const sec = Math.max(Number(seconds) || 0, 0);
@@ -300,62 +409,30 @@ export const partnerChargerSessionDetail = asyncHandler(async (req, resp) => {
     }
 });
 
-export const partnerChargerAlertList = async (req, resp) => {
+export const partnerChargerAlertList = asyncHandler(async (req, resp) => {
     try {
         const {
             page_no = 1,
             search_text = '',
-            admin_status = '',
-            severity = '',
+            status = '',
             start_date = '',
             end_date = '',
         } = mergeParam(req);
 
-        const whereField = ['status'];
-        const whereValue = [1];
-        const whereOperator = ['='];
-
-        if (admin_status) {
-            whereField.push('admin_status');
-            whereValue.push(String(admin_status).trim());
-            whereOperator.push('=');
-        }
-        if (severity) {
-            whereField.push('severity');
-            whereValue.push(String(severity).trim());
-            whereOperator.push('=');
-        }
-        appendCreatedAtRangeWhere(whereField, whereValue, whereOperator, start_date, end_date, 'created_at');
-
-        const params = {
-            tableName: ' partner_charger_alerts',
-            columns: `alert_id, charger_id, station_name, title,
-                ${formatDateTimeInQuery(['created_at'])}`,
-            sortColumn: 'id',
-            sortOrder: 'DESC',
+        const result = await listPartnerSessionHistoryAlerts({
             page_no,
+            search_text,
+            status,
+            start_date,
+            end_date,
             limit: 10,
-            liveSearchFields: ['charger_id', 'station_name', 'title'],
-            liveSearchTexts: [search_text, search_text, search_text],
-            whereField,
-            whereValue,
-            whereOperator,
-        };
-
-        const result = await getPaginatedData(params);
-        const data = result.data.map((row) => ({
-            alert_id: row.alert_id,
-            time: row.created_at,
-            message: row.title,
-            station_name: row.station_name,
-            charger_id: row.charger_id,
-        }));
+        });
 
         return resp.json({
             status: 1,
             code: 200,
             message: ['Alert list fetched successfully!'],
-            data,
+            data: result.data,
             total_page: result.totalPage,
             total: result.total,
         });
@@ -363,61 +440,38 @@ export const partnerChargerAlertList = async (req, resp) => {
         console.error('partnerChargerAlertList:', error);
         tryCatchErrorHandler(req.originalUrl, error, resp);
     }
-};
+});
 
 export const partnerChargerAlertDetail = asyncHandler(async (req, resp) => {
     const { alert_id } = mergeParam(req);
     const { isValid, errors } = validateFields(mergeParam(req), { alert_id: ['required'] });
     if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
 
-    const alert = await queryDB(
-        `
-        SELECT alert_id, charger_id, station_id, station_name, connector_id,
-            alert_type, severity, error_code, title, description, admin_status,
-            ${formatDateTimeInQuery(['created_at', 'updated_at'])}
-        FROM partner_charger_alerts
-        WHERE alert_id = ? AND status = 1
-        `,
-        [alert_id]
-    );
-    if (!alert) {
+    const row = await getPartnerSessionHistoryAlertById(alert_id);
+    if (!row) {
         return resp.json({ status: 0, code: 404, message: ['Alert not found.'] });
     }
 
+    const mapped = mapSessionHistoryAlertRow(row);
     return resp.json({
         status: 1,
         code: 200,
         message: ['Alert details fetched successfully!'],
-        data: alert,
-        alertAdminStatuses: ALERT_ADMIN_STATUSES,
+        data: {
+            ...mapped,
+            alert_type: 'Session fault',
+            description: mapped.display_session_id
+                ? `Session ${mapped.display_session_id} on connector ${mapped.connector_id ?? '—'}`
+                : null,
+        },
     });
 });
 
+/** Session alerts are IoT insert-only; admin status is not stored on session history. */
 export const partnerChargerAlertUpdate = asyncHandler(async (req, resp) => {
-    const { alert_id, admin_status } = mergeParam(req);
-    const { isValid, errors } = validateFields(mergeParam(req), { alert_id: ['required'] });
-    if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
-
-    if (!admin_status || !ALERT_ADMIN_STATUSES.includes(String(admin_status).trim())) {
-        return resp.json({
-            status: 0,
-            code: 422,
-            message: ['Administrative Status is invalid.'],
-        });
-    }
-
-    const exists = await queryDB(
-        `SELECT id FROM partner_charger_alerts WHERE alert_id = ? AND status = 1`,
-        [alert_id]
-    );
-    if (!exists) return resp.json({ status: 0, code: 404, message: ['Alert not found.'] });
-
-    await updateRecord(
-        'partner_charger_alerts',
-        { admin_status: String(admin_status).trim() },
-        ['alert_id'],
-        [alert_id]
-    );
-
-    return resp.json({ status: 1, code: 200, message: ['Alert updated successfully!'] });
+    return resp.json({
+        status: 0,
+        code: 422,
+        message: ['Alerts are recorded from session events and cannot be updated.'],
+    });
 });

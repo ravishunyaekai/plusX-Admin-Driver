@@ -88,7 +88,8 @@ app.use((req, res, next) => {
 // Partner station portal (csms-build/) on csms subdomain (served at root "/")
 // Testing : https://csms.shunyaekai.com
 // Live    : https://csms.plusxelectric.com
-// Copy plusx-partner-panel build/ → csms-build/build/
+// plusx-partner-panel: homepage "/", basename from PUBLIC_URL (same pattern as partners)
+// Copy build/ → csms-build/build/
 // APIs on same host: /partner/*
 // Nginx must forward the original host: proxy_set_header Host $host;
 // ---------------------------------------------------------------------------
@@ -115,6 +116,17 @@ app.use((req, res, next) => {
 app.use('/community-app', express.static(path.join(__dirname, 'partner-build', 'build')));
 app.get('/community-app/*', function (req, res) {
     res.sendFile(path.join(__dirname, 'partner-build', 'build', 'index.html'));
+});
+
+// ---------------------------------------------------------------------------
+// Partner station / CSMS (csms-build/) — alternate path on admin host
+// e.g. https://plusx.shunyaekai.com/csms-app
+// Optional: npm run build:csms-app in plusx-partner-panel (PUBLIC_URL=/csms-app)
+// csms.* subdomain uses default npm run build (homepage "/") — see CSMS_HOSTS block above.
+// ---------------------------------------------------------------------------
+app.use('/csms-app', express.static(path.join(__dirname, 'csms-build', 'build')));
+app.get('/csms-app/*', function (req, res) {
+    res.sendFile(path.join(__dirname, 'csms-build', 'build', 'index.html'));
 });
 
 // ---------------------------------------------------------------------------

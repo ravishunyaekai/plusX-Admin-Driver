@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS partner_charger_session_history (
     session_id           VARCHAR(50)  NOT NULL COMMENT '[IoT] Session counter e.g. 1, 2, 3',
     charger_id           VARCHAR(50)  NOT NULL COMMENT '[IoT] Must match partner_chargers.charger_id e.g. PLX-CHG-1001',
     connector_id         TINYINT      NOT NULL DEFAULT 1 COMMENT '[IoT] Connector index',
-    error_code           VARCHAR(50)  NULL DEFAULT NULL COMMENT '[IoT] Error/fault code or NULL',
+    error_code           VARCHAR(255) NULL DEFAULT NULL COMMENT '[IoT] Human-readable fault message e.g. High current draw; NULL when no error',
     status               VARCHAR(40)  NOT NULL COMMENT '[IoT] e.g. charging, completed, failed, fault',
     created_at           DATETIME     NOT NULL COMMENT '[IoT] Event time (insert-only; no row updates)',
     station_id           VARCHAR(50)  NULL DEFAULT NULL COMMENT '[PlusX ONLY] From partner_chargers → station',
@@ -107,6 +107,10 @@ COMMENT='IoT: meter samples only';
 --   MIN(created_at) AS start_time, MAX(created_at) AS end_time,
 --   duration from timestamps, latest status, error_code from latest row
 --
+-- Alerts list (PlusX API): rows in partner_charger_session_history where error_code IS NOT NULL
+--   message column in UI = error_code (text, not codes like E-202)
+-- Legacy DB rows: run partner_chargers_session_error_code_to_messages.sql once
+--
 -- Detail energy:
 --   SELECT energy FROM partner_charger_data_history
 --   WHERE charger_id = ? ORDER BY created_at DESC LIMIT 1 OFFSET 1
@@ -119,6 +123,11 @@ INNER JOIN partner_charging_stations AS ps ON ps.station_id = pc.station_id AND 
 SET sh.station_id = ps.station_id,
     sh.station_name = ps.station_name
 WHERE sh.station_id IS NULL OR sh.station_name IS NULL;
+
+-- Widen error_code for human-readable fault messages (ignore if already applied)
+ALTER TABLE partner_charger_session_history
+    MODIFY COLUMN error_code VARCHAR(255) NULL DEFAULT NULL
+    COMMENT '[IoT] Human-readable fault message e.g. High current draw; NULL when no error';
 
 -- Existing deployments (ignore errors if column already dropped / never existed)
 ALTER TABLE partner_charger_session_history DROP COLUMN user;

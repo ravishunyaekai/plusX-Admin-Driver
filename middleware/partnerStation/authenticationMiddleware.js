@@ -27,9 +27,9 @@ export const authenticateStationMaster = async (req, resp, next) => {
 
     try {
         const [rows] = await db.execute(`
-            SELECT id, station_id, station_name, master_email, admin_status, status
+            SELECT id, station_id, station_name, manager_email, station_status, status
             FROM partner_charging_stations
-            WHERE station_id = ? AND master_email = ? AND status = 1
+            WHERE station_id = ? AND manager_email = ? AND status = 1
             LIMIT 1
         `, [station_id, email]);
 
@@ -37,7 +37,7 @@ export const authenticateStationMaster = async (req, resp, next) => {
             return resp.json({ status: 403, message: 'Unauthorized access or invalid station master' });
         }
 
-        if (rows[0].admin_status && rows[0].admin_status !== 'Active') {
+        if (rows[0].station_status && rows[0].station_status !== 'Active') {
             return resp.json({
                 status: 0,
                 code: 403,

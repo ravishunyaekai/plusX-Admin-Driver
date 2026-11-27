@@ -50,3 +50,13 @@ CREATE TABLE IF NOT EXISTS `user_admin_modules` (
     FOREIGN KEY (`module_id`) REFERENCES `admin_modules` (`id`)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+
+
+INSERT INTO `admin_modules` (`module_key`, `label`, `sort_order`)
+SELECT 'partner_chargers', 'Partner Chargers Management', 15
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `admin_modules` WHERE `module_key` = 'partner_chargers'
+);

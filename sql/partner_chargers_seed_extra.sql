@@ -214,14 +214,6 @@ WHERE NOT EXISTS (
     WHERE charger_id = 'PLX-CH-5' AND energy = 14.2000
 );
 
--- Backfill station_id / station_name on all session rows (safe to re-run)
-UPDATE partner_charger_session_history AS sh
-INNER JOIN partner_chargers AS pc ON pc.charger_id = sh.charger_id AND pc.status = 1
-INNER JOIN partner_charging_stations AS ps ON ps.station_id = pc.station_id AND ps.status = 1
-SET sh.station_id = ps.station_id,
-    sh.station_name = ps.station_name
-WHERE sh.station_id IS NULL OR sh.station_name IS NULL;
-
 -- Alerts: add session history rows with error_code text (see PLX-CH-4 session 2 above).
 -- Example high-current alert for ST-03:
 INSERT INTO partner_charger_session_history (

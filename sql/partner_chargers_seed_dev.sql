@@ -69,13 +69,6 @@ INSERT INTO partner_charger_session_history (
 ('1', 'PLX-CH-2', 1, NULL, 'started',  DATE_SUB(NOW(), INTERVAL 20 MINUTE)),
 ('1', 'PLX-CH-2', 1, NULL, 'charging', DATE_SUB(NOW(), INTERVAL 5 MINUTE));
 
-UPDATE partner_charger_session_history AS sh
-INNER JOIN partner_chargers AS pc ON pc.charger_id = sh.charger_id AND pc.status = 1
-INNER JOIN partner_charging_stations AS ps ON ps.station_id = pc.station_id AND ps.status = 1
-SET sh.station_id = ps.station_id,
-    sh.station_name = ps.station_name
-WHERE sh.station_id IS NULL OR sh.station_name IS NULL;
-
 -- Meter samples (session 1 window on PLX-CH-1)
 INSERT INTO partner_charger_data_history (
     charger_id, connector_id, energy, power, voltage, current, created_at

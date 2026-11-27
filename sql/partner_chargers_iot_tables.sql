@@ -4,13 +4,14 @@
 --
 -- TABLE A (IoT writes):  partner_charger_session_history
 -- TABLE B (IoT writes):  partner_charger_data_history
+-- TABLE C (IoT updates): partner_chargers.online  (by charger_id)
 --
--- Admin tables (PlusX only, not IoT): partner_charging_stations, partner_chargers
+-- Admin tables (PlusX): partner_charging_stations, partner_chargers (admin fields only)
 --   IoT must use charger_id values that exist in partner_chargers.
 --
 -- No mobile app user / rider — public charging at partner stations only.
--- Session list "User" column = station_id + station_name (computed in API, not stored).
---   station_id / station_name filled by PlusX from partner_chargers, NOT by IoT.
+-- Session list "User" column = station_id + station_name (computed in API via JOIN to
+--   partner_chargers / partner_charging_stations; not stored on session history).
 --
 -- Session list UI (PlusX API builds from both tables + admin JOIN):
 --   display_session_id  → CONCAT('S-', session_id)     e.g. S-1, S-1047
@@ -42,15 +43,12 @@ CREATE TABLE IF NOT EXISTS partner_charger_session_history (
     error_code           VARCHAR(255) NULL DEFAULT NULL COMMENT '[IoT] Human-readable fault message e.g. High current draw; NULL when no error',
     status               VARCHAR(40)  NOT NULL COMMENT '[IoT] e.g. charging, completed, failed, fault',
     created_at           DATETIME     NOT NULL COMMENT '[IoT] Event time (insert-only; no row updates)',
-    station_id           VARCHAR(50)  NULL DEFAULT NULL COMMENT '[PlusX ONLY] From partner_chargers → station',
-    station_name         VARCHAR(150) NULL DEFAULT NULL COMMENT '[PlusX ONLY] From partner_charging_stations',
     PRIMARY KEY (id),
     KEY idx_pcsesh_charger_session_time (charger_id, session_id, created_at),
     KEY idx_pcsesh_charger_time (charger_id, created_at),
-    KEY idx_pcsesh_station (station_id),
     KEY idx_pcsesh_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT='IoT: session events. PlusX sets station_id, station_name for list/filter.';
+COMMENT='IoT: session events only. Station resolved in PlusX API via charger_id.';
 
 
 -- -----------------------------------------------------------------------------
@@ -83,27 +81,26 @@ COMMENT='IoT: meter samples only';
 --
 -- 1) partner_charger_session_history
 --    Fields you write: session_id, charger_id, connector_id, error_code, status, created_at
---    Do NOT write: id, station_id, station_name (PlusX)
+--    Do NOT write: id
 --
 -- 2) partner_charger_data_history
 --    Fields you write: charger_id, connector_id, energy, power, voltage, current, created_at
 --    Do NOT write: id
 --
+-- 3) partner_chargers (UPDATE only — admin creates rows; IoT sets connectivity)
+--    Field you write: online  (varchar token / heartbeat value, e.g. 323312313)
+--    Match row by: charger_id
+--    Example:
+--      UPDATE partner_chargers SET online = '323312313' WHERE charger_id = 'PLX-CHG-1001';
+--
 -- =============================================================================
 -- PLUSX — how session list fields are produced
 -- =============================================================================
 --
--- After IoT insert (job/trigger/API): set station on session rows (no rider/app user)
---   UPDATE partner_charger_session_history AS sh
---   INNER JOIN partner_chargers AS pc ON pc.charger_id = sh.charger_id AND pc.status = 1
---   INNER JOIN partner_charging_stations AS ps ON ps.station_id = pc.station_id AND ps.status = 1
---   SET sh.station_id = ps.station_id,
---       sh.station_name = ps.station_name
---   WHERE sh.station_id IS NULL OR sh.station_name IS NULL;
---
 -- List query (one row per charger_id + session_id):
 --   session_id, display_session_id = CONCAT('S-', session_id),
---   charger_id, station_id, station_name, user (UI "User" = API concat station fields),
+--   charger_id, station_id/station_name from JOIN partner_chargers → partner_charging_stations,
+--   user (UI "User" = API concat station fields),
 --   MIN(created_at) AS start_time, MAX(created_at) AS end_time,
 --   duration from timestamps, latest status, error_code from latest row
 --
@@ -117,19 +114,19 @@ COMMENT='IoT: meter samples only';
 --   (optionally restrict created_at between session start/end)
 -- =============================================================================
 
-UPDATE partner_charger_session_history AS sh
-INNER JOIN partner_chargers AS pc ON pc.charger_id = sh.charger_id AND pc.status = 1
-INNER JOIN partner_charging_stations AS ps ON ps.station_id = pc.station_id AND ps.status = 1
-SET sh.station_id = ps.station_id,
-    sh.station_name = ps.station_name
-WHERE sh.station_id IS NULL OR sh.station_name IS NULL;
-
 -- Widen error_code for human-readable fault messages (ignore if already applied)
 ALTER TABLE partner_charger_session_history
     MODIFY COLUMN error_code VARCHAR(255) NULL DEFAULT NULL
     COMMENT '[IoT] Human-readable fault message e.g. High current draw; NULL when no error';
 
--- Existing deployments (ignore errors if column already dropped / never existed)
+-- Existing deployments (ignore errors if column/index already exists / dropped / never existed)
+ALTER TABLE partner_chargers
+    ADD COLUMN online VARCHAR(50) NULL DEFAULT NULL
+        COMMENT '[IoT] Device heartbeat / connectivity token e.g. 323312313'
+        AFTER charger_status;
+ALTER TABLE partner_charger_session_history DROP INDEX idx_pcsesh_station;
+ALTER TABLE partner_charger_session_history DROP COLUMN station_id;
+ALTER TABLE partner_charger_session_history DROP COLUMN station_name;
 ALTER TABLE partner_charger_session_history DROP COLUMN user;
 ALTER TABLE partner_charger_session_history DROP COLUMN updated_at;
 ALTER TABLE partner_charger_data_history DROP COLUMN updated_at;

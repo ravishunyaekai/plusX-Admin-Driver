@@ -10,11 +10,12 @@ export const chargerList = asyncHandler(async (req, resp) => {
         page_no = 1,
         search_text = '',
         admin_status = '',
+        charger_status = '',
         status = '',
         start_date = '',
         end_date = '',
     } = mergeParam(req);
-    const adminStatusFilter = String(admin_status || status || '').trim();
+    const chargerStatusFilter = String(charger_status || admin_status || status || '').trim();
 
     const { isValid, errors } = validateFields(mergeParam(req), { station_id: ['required'] });
     if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
@@ -23,9 +24,9 @@ export const chargerList = asyncHandler(async (req, resp) => {
     const whereField = ['pc.station_id', 'pc.status'];
     const whereValue = [station_id, 1];
     const whereOperator = ['=', '='];
-    if (adminStatusFilter) {
-        whereField.push('pc.admin_status');
-        whereValue.push(adminStatusFilter);
+    if (chargerStatusFilter) {
+        whereField.push('pc.charger_status');
+        whereValue.push(chargerStatusFilter);
         whereOperator.push('=');
     }
     appendCreatedAtRangeWhere(whereField, whereValue, whereOperator, start_date, end_date, 'pc.created_at');
@@ -34,13 +35,13 @@ export const chargerList = asyncHandler(async (req, resp) => {
         tableName: ' partner_chargers AS pc',
         joinTable: ' partner_charging_stations AS ps',
         joinCondition: 'pc.station_id = ps.station_id AND ps.status = 1',
-        columns: `pc.charger_id, pc.charger_name, pc.station_id, ps.station_name, ps.station_type,
-            pc.charger_type, pc.rated_power_kw, pc.connector_type, pc.connector_count,
-            pc.admin_status AS status`,
+        columns: `pc.charger_id, pc.station_id, ps.station_name, ps.station_type,
+            pc.charging_type, pc.charger_type, pc.rated_power_kw, pc.connector_type, pc.connector_count,
+            pc.charger_status, pc.online`,
         sortColumn: 'pc.id',
         sortOrder: 'DESC',
         page_no,
-        liveSearchFields: ['pc.charger_id', 'pc.charger_name', 'ps.station_name'],
+        liveSearchFields: ['pc.charger_id', 'pc.serial_number', 'ps.station_name'],
         liveSearchTexts: [search_text, search_text, search_text],
         limit: 10,
         whereField,
@@ -70,11 +71,11 @@ export const chargerDetails = asyncHandler(async (req, resp) => {
 
     const charger = await queryDB(`
         SELECT
-            pc.charger_id, pc.charger_name, pc.station_id, ps.station_name,
-            pc.manufacturer, pc.model, pc.serial_number, pc.charger_type, pc.rated_power_kw,
-            pc.connector_type, pc.connector_count, pc.input_supply, pc.max_output_voltage_v,
-            ${formatDateInQuery(['pc.installation_date'])}, pc.sim_iccid, pc.imei,
-            pc.installation_notes, pc.admin_status, pc.status,
+            pc.charger_id, pc.station_id, ps.station_name, pc.rated_power_kw, pc.charging_type,
+            pc.unit_price_aed, pc.charging_mode, pc.manufacturer, pc.model, pc.serial_number,
+            pc.charger_type, pc.connector_type, pc.connector_count, pc.input_supply,
+            pc.max_output_voltage_v, ${formatDateInQuery(['pc.installation_date'])},
+            pc.sim_iccid, pc.imei, pc.charger_status, pc.online, pc.status,
             ${formatDateTimeInQuery(['pc.created_at', 'pc.updated_at'])}
         FROM partner_chargers AS pc
         LEFT JOIN partner_charging_stations AS ps

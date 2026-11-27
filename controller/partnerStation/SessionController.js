@@ -6,7 +6,6 @@ import { assertStationScope } from '../../middleware/partnerStation/authenticati
 import moment from 'moment';
 import { resolvePartnerListCreatedAtRange } from '../admin/PartnerChargerController.js';
 import {
-    backfillPartnerSessionStations,
     formatDurationSeconds,
     parseDisplaySessionId,
     sessionUserLabel,
@@ -16,8 +15,6 @@ import {
 } from '../admin/PartnerChargerSessionController.js';
 
 export const sessionList = asyncHandler(async (req, resp) => {
-    await backfillPartnerSessionStations();
-
     const {
         station_id,
         page_no = 1,
@@ -103,8 +100,6 @@ export const sessionList = asyncHandler(async (req, resp) => {
 });
 
 export const sessionDetails = asyncHandler(async (req, resp) => {
-    await backfillPartnerSessionStations();
-
     const body = mergeParam(req);
     let { station_id, charger_id, session_id, display_session_id } = body;
 
@@ -127,17 +122,19 @@ export const sessionDetails = asyncHandler(async (req, resp) => {
     const summary = await queryDB(
         `
         SELECT
-            charger_id,
-            session_id,
-            CONCAT('S-', session_id) AS display_session_id,
-            MAX(station_id) AS station_id,
-            MAX(station_name) AS station_name,
-            MIN(created_at) AS start_time_raw,
-            MAX(created_at) AS end_time_raw,
-            TIMESTAMPDIFF(SECOND, MIN(created_at), MAX(created_at)) AS duration_seconds
-        FROM partner_charger_session_history
-        WHERE charger_id = ? AND session_id = ?
-        GROUP BY charger_id, session_id
+            sh.charger_id,
+            sh.session_id,
+            CONCAT('S-', sh.session_id) AS display_session_id,
+            MAX(pc.station_id) AS station_id,
+            MAX(ps.station_name) AS station_name,
+            MIN(sh.created_at) AS start_time_raw,
+            MAX(sh.created_at) AS end_time_raw,
+            TIMESTAMPDIFF(SECOND, MIN(sh.created_at), MAX(sh.created_at)) AS duration_seconds
+        FROM partner_charger_session_history AS sh
+        LEFT JOIN partner_chargers AS pc ON pc.charger_id = sh.charger_id AND pc.status = 1
+        LEFT JOIN partner_charging_stations AS ps ON ps.station_id = pc.station_id AND ps.status = 1
+        WHERE sh.charger_id = ? AND sh.session_id = ?
+        GROUP BY sh.charger_id, sh.session_id
         `,
         [charger_id, session_id]
     );

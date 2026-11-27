@@ -5,11 +5,12 @@ import db from '../../config/db.js';
 import { formatDateTimeInQuery, mergeParam, asyncHandler } from '../../utils.js';
 import validateFields from '../../validation.js';
 import { assertStationScope } from '../../middleware/partnerStation/authenticationMiddleware.js';
+import { enrichPartnerStationRecord } from '../admin/PartnerChargerController.js';
 
 const DASHBOARD_COUNT_CARD_META = [
     { key: 'total_chargers', label: 'Total Chargers' },
     { key: 'available_chargers', label: 'Available Chargers' },
-    { key: 'currently_charging', label: 'Currently Charging' },
+    { key: 'connection_pending', label: 'Connection Pending' },
     { key: 'faulty_chargers', label: 'Faulty Chargers' },
 ];
 
@@ -32,11 +33,11 @@ export const login = async (req, resp) => {
 
         const [rows] = await db.execute(`
             SELECT
-                id, station_id, station_name, master_email, master_password,
-                admin_status, city, country, address, country_code, contact_number, status,
+                id, station_id, station_name, manager_email, manager_password,
+                station_status, emirates, address, country_code, manager_contact_no, status,
                 ${formatDateTimeInQuery(['created_at', 'updated_at'])}
             FROM partner_charging_stations
-            WHERE master_email = ? AND status = 1
+            WHERE manager_email = ? AND status = 1
             LIMIT 1
         `, [email]);
 
@@ -46,7 +47,7 @@ export const login = async (req, resp) => {
 
         const station = rows[0];
 
-        if (station.admin_status && station.admin_status !== 'Active') {
+        if (station.station_status && station.station_status !== 'Active') {
             return resp.status(200).json({
                 status: 0,
                 code: 200,
@@ -54,7 +55,7 @@ export const login = async (req, resp) => {
             });
         }
 
-        const isMatch = await bcrypt.compare(password, station.master_password);
+        const isMatch = await bcrypt.compare(password, station.manager_password);
         if (!isMatch) {
             return resp.status(200).json({ status: 0, code: 200, message: 'Invalid password' });
         }
@@ -63,7 +64,7 @@ export const login = async (req, resp) => {
             {
                 id: station.id,
                 station_id: station.station_id,
-                email: station.master_email,
+                email: station.manager_email,
                 role: 'partner_station_master',
             },
             process.env.JWT_SECRET,
@@ -77,7 +78,7 @@ export const login = async (req, resp) => {
             maxAge: 3600000,
         });
 
-        delete station.master_password;
+        delete station.manager_password;
 
         return resp.status(200).json({
             status: 1,
@@ -86,12 +87,11 @@ export const login = async (req, resp) => {
             userDetails: {
                 station_id: station.station_id,
                 station_name: station.station_name,
-                email: station.master_email,
-                city: station.city,
-                country: station.country,
+                email: station.manager_email,
+                emirates: station.emirates,
                 address: station.address,
                 country_code: station.country_code,
-                contact_number: station.contact_number,
+                manager_contact_no: station.manager_contact_no,
             },
             Token: process.env.CUSTOM_TOKEN,
         });
@@ -115,7 +115,7 @@ export const logout = async (req, resp) => {
 
     try {
         const [rows] = await db.execute(
-            'SELECT id FROM partner_charging_stations WHERE master_email = ? AND status = 1',
+            'SELECT id FROM partner_charging_stations WHERE manager_email = ? AND status = 1',
             [email]
         );
         if (rows.length === 0) {
@@ -138,9 +138,9 @@ export const stationDetails = asyncHandler(async (req, resp) => {
 
     const [rows] = await db.execute(`
         SELECT
-            station_id, station_name, station_type, operator_name, address, city, state_emirate,
-            country, postal_code, latitude, longitude, contact_person, country_code, contact_number,
-            operating_hours, admin_status, description, number_of_chargers, master_email,
+            station_id, station_name, station_type, emirates, address, latitude, longitude,
+            manager_name, manager_email, country_code, manager_contact_no,
+            operating_hours, station_status,
             (SELECT COUNT(*) FROM partner_chargers WHERE station_id = ? AND status = 1) AS charger_count,
             ${formatDateTimeInQuery(['created_at', 'updated_at'])}
         FROM partner_charging_stations
@@ -156,7 +156,7 @@ export const stationDetails = asyncHandler(async (req, resp) => {
         status: 1,
         code: 200,
         message: ['Station details fetched successfully!'],
-        data: rows[0],
+        data: enrichPartnerStationRecord(rows[0]),
     });
 });
 
@@ -172,16 +172,16 @@ export const getDashboardData = asyncHandler(async (req, resp) => {
     const [countRows] = await db.execute(`
         SELECT
             COUNT(*) AS total_chargers,
-            COALESCE(SUM(admin_status = 'Available'), 0) AS available_chargers,
-            COALESCE(SUM(admin_status = 'Charging'), 0) AS currently_charging,
-            COALESCE(SUM(admin_status = 'Faulty'), 0) AS faulty_chargers
+            COALESCE(SUM(charger_status = 'Available'), 0) AS available_chargers,
+            COALESCE(SUM(charger_status = 'Connection Pending'), 0) AS connection_pending,
+            COALESCE(SUM(charger_status = 'Faulty'), 0) AS faulty_chargers
         FROM partner_chargers
         WHERE station_id = ? AND status = 1
     `, [sid]);
 
     const [stationRows] = await db.execute(`
         SELECT
-            ps.station_id, ps.station_name, ps.city, ps.admin_status,
+            ps.station_id, ps.station_name, ps.emirates, ps.station_status,
             ps.latitude, ps.longitude,
             (SELECT COUNT(*) FROM partner_chargers AS pc
                 WHERE pc.station_id = ps.station_id AND pc.status = 1) AS charger_count
@@ -198,7 +198,7 @@ export const getDashboardData = asyncHandler(async (req, resp) => {
     const counts = {
         total_chargers: dashboardCount(raw.total_chargers),
         available_chargers: dashboardCount(raw.available_chargers),
-        currently_charging: dashboardCount(raw.currently_charging),
+        connection_pending: dashboardCount(raw.connection_pending),
         faulty_chargers: dashboardCount(raw.faulty_chargers),
     };
 
@@ -216,8 +216,8 @@ export const getDashboardData = asyncHandler(async (req, resp) => {
             return {
                 station_id: row.station_id,
                 station_name: row.station_name,
-                city: row.city,
-                admin_status: row.admin_status,
+                emirates: row.emirates,
+                station_status: row.station_status,
                 charger_count: dashboardCount(row.charger_count),
                 latitude: lat,
                 longitude: lng,

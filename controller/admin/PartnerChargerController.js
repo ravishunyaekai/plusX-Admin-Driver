@@ -6,45 +6,42 @@ import validateFields from '../../validation.js';
 import { queryDB, getPaginatedData, insertRecord, updateRecord } from '../../dbUtils.js';
 import { tryCatchErrorHandler } from '../../middleware/errorHandler.js';
 
-const STATION_TYPES = [
-    'Public Station',
-    'Private Station',
-    'Commercial Hub',
-    'Residential Community',
+const STATION_TYPES = ['Public Station', 'Private Station'];
+
+const OPERATING_HOUR_WEEKDAYS = [
+    'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
 ];
 
-const OPERATING_HOURS = ['24 x 7', '6 AM - 10 PM', '9 AM - 9 PM', 'Custom Schedule'];
+const STATION_STATUSES = ['Active', 'Inactive', 'Under Maintenance'];
 
-/** Station add/edit — “Administrative Status” (not used on chargers) */
-const STATION_ADMIN_STATUSES = ['Active', 'Inactive', 'Pending approval', 'Under maintenance'];
+const CHARGING_TYPES = ['Free', 'Paid'];
+const CHARGING_MODES = ['auto', 'manual', 'Automatic', 'Manual'];
 
-/** Charger add/edit — “Initial Administrative Status” */
-const CHARGER_INITIAL_ADMIN_STATUSES = [
-    'Active',
-    'Pending Connection',
-    'Available',
-    'Charging',
-    'Faulty',
-    'Inactive',
-];
+const normalizeChargingModeForStorage = (value) => {
+    const key = String(value ?? '').trim().toLowerCase();
+    if (key === 'automatic' || key === 'auto') return 'auto';
+    if (key === 'manual') return 'manual';
+    return String(value ?? '').trim();
+};
+const CHARGER_STATUSES = ['Available', 'Faulty', 'Connection Pending'];
 
-const normalizeStationAdminStatus = (value) => {
+const normalizeStationStatus = (value) => {
     let v = String(value ?? '').trim();
     if (v === 'In-active') v = 'Inactive';
-    if (v === 'Pending Connection') v = 'Pending approval';
+    if (v.toLowerCase() === 'under maintenance' || v === 'Under maintenance') v = 'Under Maintenance';
     return v;
 };
 
-const normalizeChargerInitialAdminStatus = (value) => {
+const normalizeChargerStatus = (value) => {
     let v = String(value ?? '').trim();
-    if (v === 'In-active') v = 'Inactive';
-    if (v === 'Pending approval') v = 'Pending Connection';
+    if (v === 'Pending Connection' || v === 'Pending connection') v = 'Connection Pending';
+    if (v === 'Pending approval') v = 'Connection Pending';
     return v;
 };
 
 const CHARGER_TYPES = ['AC', 'DC'];
 
-const CONNECTOR_TYPES = ['Type 2', 'CCS2', 'CHAdeMO', 'GB/T', 'Type 1'];
+const CONNECTOR_TYPES = ['Type 2', 'CCS2', 'CHAdeMO', 'GB/T', 'Type 1', 'NACS'];
 
 const INPUT_SUPPLY_OPTIONS = [
     'Single Phase',
@@ -74,9 +71,9 @@ export const appendCreatedAtRangeWhere = (whereField, whereValue, whereOperator,
 };
 
 const STATION_DETAIL_COLUMNS = `
-    station_id, station_name, station_type, operator_name, address, city, state_emirate,
-    country, postal_code, latitude, longitude, contact_person, country_code, contact_number,
-    operating_hours, admin_status, description, number_of_chargers, master_email, status,
+    station_id, station_name, station_type, emirates, address, latitude, longitude,
+    manager_name, manager_email, country_code, manager_contact_no,
+    operating_hours, station_status, status,
     ${formatDateTimeInQuery(['created_at', 'updated_at'])}
 `;
 
@@ -106,18 +103,244 @@ const normalizeStationContactNumber = (contactNumber, countryCode) => {
 };
 
 const CHARGER_DETAIL_COLUMNS = `
-    charger_id, charger_name, station_id, manufacturer, model, serial_number,
-    charger_type, rated_power_kw, connector_type, connector_count, input_supply,
-    max_output_voltage_v, ${formatDateInQuery(['installation_date'])}, sim_iccid, imei,
-    installation_notes, admin_status, status,
+    charger_id, station_id, rated_power_kw, charging_type, unit_price_aed, charging_mode,
+    manufacturer, model, serial_number, charger_type, connector_type, connector_count,
+    input_supply, max_output_voltage_v, ${formatDateInQuery(['installation_date'])},
+    sim_iccid, imei, charger_status, online, status,
     ${formatDateTimeInQuery(['created_at', 'updated_at'])}
 `;
 
+const DAY_NAME_ALIASES = {
+    mon: 'monday', monday: 'monday',
+    tue: 'tuesday', tues: 'tuesday', tuesday: 'tuesday',
+    wed: 'wednesday', wednesday: 'wednesday',
+    thu: 'thursday', thur: 'thursday', thurs: 'thursday', thursday: 'thursday',
+    fri: 'friday', friday: 'friday',
+    sat: 'saturday', saturday: 'saturday',
+    sun: 'sunday', sunday: 'sunday',
+};
+
+const toTruthy = (value) => value === true || value === 1 || value === '1'
+    || String(value ?? '').trim().toLowerCase() === 'true';
+
+const normalizeWeekdayKey = (raw) => {
+    const key = String(raw ?? '').trim().toLowerCase().replace(/\s+/g, '');
+    return DAY_NAME_ALIASES[key] ?? null;
+};
+
+const parseOperatingTime = (value) => {
+    if (isBlank(value)) return { valid: true, value: null };
+    const m = moment(String(value).trim(), ['HH:mm', 'H:mm', 'hh:mm A', 'h:mm A'], true);
+    if (!m.isValid()) return { valid: false, value: null };
+    return { valid: true, value: m.format('HH:mm') };
+};
+
+const emptyOperatingSchedule = () => {
+    const schedule = {};
+    for (const day of OPERATING_HOUR_WEEKDAYS) {
+        schedule[day] = { open: null, close: null, closed: true };
+    }
+    return schedule;
+};
+
+const buildOperatingHoursStorage = (alwaysOpen, schedule) => JSON.stringify({
+    always_open: Boolean(alwaysOpen),
+    schedule: alwaysOpen ? {} : schedule,
+});
+
+const parseJsonObject = (input) => {
+    if (input && typeof input === 'object' && !Array.isArray(input)) return input;
+    if (typeof input === 'string' && input.trim()) {
+        try {
+            const parsed = JSON.parse(input);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+        } catch {
+            return null;
+        }
+    }
+    return null;
+};
+
+/** Accept always_open + per-day open/close (HH:mm) from admin UI. */
+const parseOperatingHoursFromBody = (body) => {
+    const alwaysOpen = toTruthy(body.always_open ?? body.alwaysOpen);
+
+    const schedule = emptyOperatingSchedule();
+    if (alwaysOpen) {
+        return {
+            always_open: true,
+            schedule,
+            storage: buildOperatingHoursStorage(true, schedule),
+        };
+    }
+
+    let raw = body.operating_hours ?? body.operating_hour ?? body.operatingHours;
+    const parsedObj = parseJsonObject(raw);
+    if (parsedObj) {
+        if (toTruthy(parsedObj.always_open ?? parsedObj.alwaysOpen)) {
+            return {
+                always_open: true,
+                schedule: emptyOperatingSchedule(),
+                storage: buildOperatingHoursStorage(true, {}),
+            };
+        }
+        raw = parsedObj;
+    }
+
+    const listSource = Array.isArray(body.weekly_schedule)
+        ? body.weekly_schedule
+        : (Array.isArray(body.operating_hours_schedule) ? body.operating_hours_schedule : null);
+
+    if (listSource) {
+        for (const row of listSource) {
+            if (!row || typeof row !== 'object') continue;
+            const day = normalizeWeekdayKey(row.day ?? row.weekday ?? row.name);
+            if (!day) continue;
+            const open = parseOperatingTime(row.open ?? row.open_time ?? row.start);
+            const close = parseOperatingTime(row.close ?? row.close_time ?? row.end);
+            const closed = toTruthy(row.closed ?? row.is_closed) || (isBlank(row.open) && isBlank(row.close));
+            schedule[day] = {
+                open: open.value,
+                close: close.value,
+                closed,
+            };
+        }
+    } else if (parsedObj || (raw && typeof raw === 'object')) {
+        const source = parsedObj?.schedule ?? parsedObj ?? raw;
+        if (source && typeof source === 'object') {
+            for (const [key, val] of Object.entries(source)) {
+                if (key === 'always_open' || key === 'alwaysOpen') continue;
+                const day = normalizeWeekdayKey(key);
+                if (!day || !val || typeof val !== 'object') continue;
+                const open = parseOperatingTime(val.open ?? val.open_time ?? val.start);
+                const close = parseOperatingTime(val.close ?? val.close_time ?? val.end);
+                const closed = toTruthy(val.closed ?? val.is_closed)
+                    || (isBlank(val.open) && isBlank(val.close));
+                schedule[day] = {
+                    open: open.value,
+                    close: close.value,
+                    closed,
+                };
+            }
+        }
+    }
+
+    for (const day of OPERATING_HOUR_WEEKDAYS) {
+        const openRaw = body[`${day}_open`] ?? body[`${day}Open`];
+        const closeRaw = body[`${day}_close`] ?? body[`${day}Close`];
+        const closedRaw = body[`${day}_closed`] ?? body[`${day}Closed`];
+        if (openRaw === undefined && closeRaw === undefined && closedRaw === undefined) continue;
+
+        const open = parseOperatingTime(openRaw);
+        const close = parseOperatingTime(closeRaw);
+        const closed = toTruthy(closedRaw) || (isBlank(openRaw) && isBlank(closeRaw));
+        schedule[day] = {
+            open: open.value,
+            close: close.value,
+            closed,
+        };
+    }
+
+    return {
+        always_open: false,
+        schedule,
+        storage: buildOperatingHoursStorage(false, schedule),
+    };
+};
+
+const validateOperatingHoursPayload = (payload) => {
+    const errors = [];
+    if (payload.always_open) {
+        return { isValid: true, errors, storage: payload.storage };
+    }
+
+    let hasOpenDay = false;
+    for (const day of OPERATING_HOUR_WEEKDAYS) {
+        const slot = payload.schedule[day];
+        if (!slot || slot.closed) continue;
+
+        if (isBlank(slot.open) && isBlank(slot.close)) continue;
+
+        const open = parseOperatingTime(slot.open);
+        const close = parseOperatingTime(slot.close);
+
+        if (!open.valid) {
+            errors.push(`${day.charAt(0).toUpperCase()}${day.slice(1)} open time is invalid (use HH:mm).`);
+        }
+        if (!close.valid) {
+            errors.push(`${day.charAt(0).toUpperCase()}${day.slice(1)} close time is invalid (use HH:mm).`);
+        }
+        if (isBlank(slot.open) || isBlank(slot.close)) {
+            errors.push(`${day.charAt(0).toUpperCase()}${day.slice(1)} requires both open and close time.`);
+            continue;
+        }
+
+        hasOpenDay = true;
+    }
+
+    if (!hasOpenDay) {
+        errors.push('Operating Hours is required (enable Always Open or set hours for at least one day).');
+    }
+
+    return { isValid: errors.length === 0, errors, storage: payload.storage };
+};
+
+export const formatStationOperatingHours = (stored) => {
+    if (stored === null || stored === undefined) {
+        return { always_open: false, schedule: emptyOperatingSchedule() };
+    }
+
+    if (typeof stored === 'object' && !Buffer.isBuffer(stored)) {
+        const root = stored;
+        const always_open = toTruthy(root.always_open ?? root.alwaysOpen);
+        const schedule = emptyOperatingSchedule();
+        const source = root.schedule && typeof root.schedule === 'object' ? root.schedule : {};
+        for (const day of OPERATING_HOUR_WEEKDAYS) {
+            const slot = source[day];
+            if (!slot || typeof slot !== 'object') continue;
+            schedule[day] = {
+                open: slot.open ?? null,
+                close: slot.close ?? null,
+                closed: toTruthy(slot.closed) || (isBlank(slot.open) && isBlank(slot.close)),
+            };
+        }
+        return { always_open, schedule };
+    }
+
+    const text = String(stored).trim();
+    if (!text) return { always_open: false, schedule: emptyOperatingSchedule() };
+
+    const parsed = parseJsonObject(text);
+    if (parsed) return formatStationOperatingHours(parsed);
+
+    const legacyAlwaysOpen = /24\s*x\s*7|24\/7|always\s*open/i.test(text);
+    return {
+        always_open: legacyAlwaysOpen,
+        schedule: emptyOperatingSchedule(),
+        legacy_label: text,
+    };
+};
+
+export const enrichPartnerStationRecord = (row) => {
+    if (!row || typeof row !== 'object') return row;
+    const formatted = formatStationOperatingHours(row.operating_hours);
+    return {
+        ...row,
+        always_open: formatted.always_open,
+        operating_hours: formatted,
+        ...(formatted.legacy_label ? { operating_hours_legacy: formatted.legacy_label } : {}),
+    };
+};
+
 const stationEnumPayload = () => ({
     stationTypes: STATION_TYPES,
-    operatingHours: OPERATING_HOURS,
-    administrativeStatuses: STATION_ADMIN_STATUSES,
-    adminStatuses: STATION_ADMIN_STATUSES,
+    operatingHourWeekdays: OPERATING_HOUR_WEEKDAYS,
+    /** @deprecated — use weekly schedule in operating_hours */
+    operatingHours: [],
+    stationStatuses: STATION_STATUSES,
+    /** @deprecated use stationStatuses */
+    administrativeStatuses: STATION_STATUSES,
+    adminStatuses: STATION_STATUSES,
 });
 
 const isBlank = (value) => value === undefined || value === null || String(value).trim() === '';
@@ -167,35 +390,35 @@ const parseStationCoord = (value, kind = 'lat') => {
 };
 
 const parsePartnerStationBody = (body) => {
-    const master_password = body.master_password ?? body.password ?? '';
+    const manager_password = body.manager_password ?? body.master_password ?? body.password ?? '';
     const confirm_password = body.confirm_password ?? body.confirmPassword ?? '';
 
     return {
         station_id: String(body.station_id ?? '').trim(),
         station_name: String(body.station_name ?? '').trim(),
         station_type: String(body.station_type ?? '').trim(),
-        operator_name: String(body.operator_name ?? '').trim(),
+        emirates: String(body.emirates ?? body.state_emirate ?? '').trim(),
         address: String(body.address ?? '').trim(),
-        city: String(body.city ?? '').trim(),
-        state_emirate: String(body.state_emirate ?? body.emirates ?? '').trim(),
-        country: String(body.country ?? '').trim(),
-        postal_code: String(body.postal_code ?? '').trim(),
         latitude: body.latitude,
         longitude: body.longitude,
-        contact_person: String(body.contact_person ?? '').trim(),
+        manager_name: String(
+            body.manager_name ?? body.contact_person ?? body.operator_name ?? ''
+        ).trim(),
         country_code: normalizeStationCountryCode(body.country_code),
-        contact_number: normalizeStationContactNumber(
-            body.contact_number ?? body.contact_no ?? body.mobile,
+        manager_contact_no: normalizeStationContactNumber(
+            body.manager_contact_no ?? body.contact_number ?? body.contact_no ?? body.mobile,
             body.country_code
         ),
-        operating_hours: String(body.operating_hours ?? body.operating_hour ?? '').trim(),
-        admin_status:
-            normalizeStationAdminStatus(body.admin_status ?? body.administrative_status ?? '') || 'Active',
-        description: String(body.description ?? body.station_description ?? '').trim(),
-        master_email: String(body.master_email ?? body.email_id ?? body.email ?? '').trim(),
-        master_password: String(master_password),
+        operating_hours: null,
+        station_status: normalizeStationStatus(
+            body.station_status ?? body.admin_status ?? body.administrative_status ?? ''
+        ) || 'Active',
+        manager_email: String(
+            body.manager_email ?? body.master_email ?? body.email_id ?? body.email ?? ''
+        ).trim(),
+        manager_password: String(manager_password),
         confirm_password: String(confirm_password),
-        number_of_chargers: body.number_of_chargers ?? body.no_of_chargers ?? body.numberOfChargers,
+        _rawBody: body,
     };
 };
 
@@ -210,11 +433,8 @@ const validatePartnerStationForm = (fields, { isEdit = false } = {}) => {
     }
     requireField(fields.station_name, 'Station Name');
     requireField(fields.station_type, 'Station Type');
-    requireField(fields.operator_name, 'Operator Name');
     requireField(fields.address, 'Address');
-    requireField(fields.city, 'City');
-    requireField(fields.state_emirate, 'Emirates');
-    requireField(fields.country, 'Country');
+    requireField(fields.emirates, 'Emirates');
 
     const lat = parseStationCoord(fields.latitude, 'lat');
     const lng = parseStationCoord(fields.longitude, 'lng');
@@ -223,31 +443,31 @@ const validatePartnerStationForm = (fields, { isEdit = false } = {}) => {
     if (lng.empty) errors.push('Longitude is required.');
     else if (!lng.valid) errors.push('Longitude is invalid.');
 
-    requireField(fields.contact_person, 'Contact Person');
+    requireField(fields.manager_name, 'Manager Name');
 
-    if (isBlank(fields.master_email)) {
+    if (isBlank(fields.manager_email)) {
         errors.push('Email ID is required.');
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.master_email)) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.manager_email)) {
         errors.push('Please enter a valid Email ID.');
     }
 
     if (isEdit) {
-        if (!isBlank(fields.master_password)) {
-            if (fields.master_password.length < 6) {
+        if (!isBlank(fields.manager_password)) {
+            if (fields.manager_password.length < 6) {
                 errors.push('Password must be at least 6 characters');
             }
-            if (fields.master_password !== fields.confirm_password) {
+            if (fields.manager_password !== fields.confirm_password) {
                 errors.push('Passwords do not match.');
             }
         }
     } else {
-        requireField(fields.master_password, 'Password');
-        if (!isBlank(fields.master_password) && fields.master_password.length < 6) {
+        requireField(fields.manager_password, 'Password');
+        if (!isBlank(fields.manager_password) && fields.manager_password.length < 6) {
             errors.push('Password must be at least 6 characters');
         }
         requireField(fields.confirm_password, 'Confirm Password');
-        if (!isBlank(fields.master_password) && !isBlank(fields.confirm_password)
-            && fields.master_password !== fields.confirm_password) {
+        if (!isBlank(fields.manager_password) && !isBlank(fields.confirm_password)
+            && fields.manager_password !== fields.confirm_password) {
             errors.push('Passwords do not match.');
         }
     }
@@ -255,27 +475,15 @@ const validatePartnerStationForm = (fields, { isEdit = false } = {}) => {
     if (!isBlank(fields.station_type) && !STATION_TYPES.includes(fields.station_type)) {
         errors.push('Station Type is invalid.');
     }
-    requireField(fields.operating_hours, 'Operating Hour');
-    if (!isBlank(fields.operating_hours) && !OPERATING_HOURS.includes(fields.operating_hours)) {
-        errors.push('Operating Hour is invalid.');
+    requireField(fields.station_status, 'Station Status');
+    if (!isBlank(fields.station_status) && !STATION_STATUSES.includes(fields.station_status)) {
+        errors.push('Station Status is invalid.');
     }
 
-    requireField(fields.admin_status, 'Administrative Status');
-    if (!isBlank(fields.admin_status) && !STATION_ADMIN_STATUSES.includes(fields.admin_status)) {
-        errors.push('Administrative Status is invalid.');
-    }
-
-    requireField(fields.description, 'Station Description');
-
-    let number_of_chargers = null;
-    if (fields.number_of_chargers === undefined || fields.number_of_chargers === null
-        || String(fields.number_of_chargers).trim() === '') {
-        errors.push('No. of Chargers is required.');
-    } else {
-        number_of_chargers = Number(fields.number_of_chargers);
-        if (!Number.isInteger(number_of_chargers) || number_of_chargers < 1) {
-            errors.push('No. of Chargers must be at least 1.');
-        }
+    const operatingPayload = parseOperatingHoursFromBody(fields._rawBody ?? {});
+    const operatingValidation = validateOperatingHoursPayload(operatingPayload);
+    if (!operatingValidation.isValid) {
+        errors.push(...operatingValidation.errors);
     }
 
     return {
@@ -283,19 +491,23 @@ const validatePartnerStationForm = (fields, { isEdit = false } = {}) => {
         errors,
         latitude: lat.num,
         longitude: lng.num,
-        number_of_chargers,
+        operating_hours: operatingValidation.storage,
     };
 };
 
 const parsePartnerChargerBody = (body) => ({
     charger_id: String(body.charger_id ?? '').trim(),
-    charger_name: String(body.charger_name ?? '').trim(),
     station_id: String(body.station_id ?? body.station ?? '').trim(),
+    rated_power_kw: body.rated_power_kw ?? body.rated_power ?? body.ratedPowerKw,
+    charging_type: String(body.charging_type ?? body.chargingType ?? 'Free').trim(),
+    unit_price_aed: body.unit_price_aed ?? body.unit_price ?? body.unitPrice,
+    charging_mode: normalizeChargingModeForStorage(
+        body.charging_mode ?? body.chargingMode ?? 'auto'
+    ),
     manufacturer: String(body.manufacturer ?? '').trim(),
     model: String(body.model ?? '').trim(),
     serial_number: String(body.serial_number ?? '').trim(),
     charger_type: String(body.charger_type ?? '').trim(),
-    rated_power_kw: body.rated_power_kw ?? body.rated_power ?? body.ratedPowerKw,
     connector_type: String(body.connector_type ?? '').trim(),
     connector_count:
         body.connector_count ?? body.no_of_connector ?? body.no_of_connectors
@@ -306,16 +518,9 @@ const parsePartnerChargerBody = (body) => ({
     installation_date: body.installation_date ?? body.installationDate,
     sim_iccid: String(body.sim_iccid ?? body.simIccid ?? '').trim() || null,
     imei: String(body.imei ?? body.imei_number ?? body.imeiNumber ?? '').trim() || null,
-    installation_notes: String(
-        body.installation_notes ?? body.installation_note ?? body.installationNotes ?? ''
-    ).trim(),
-    admin_status:
-        normalizeChargerInitialAdminStatus(
-            body.admin_status
-                ?? body.initial_administrative_status
-                ?? body.initialAdministrativeStatus
-                ?? ''
-        ) || 'Active',
+    charger_status: normalizeChargerStatus(
+        body.charger_status ?? body.admin_status ?? body.initial_administrative_status ?? ''
+    ) || 'Available',
 });
 
 const parseInstallationDate = (value) => {
@@ -335,10 +540,7 @@ const validatePartnerChargerForm = (fields, { isEdit = false } = {}) => {
         if (isBlank(value)) errors.push(`${label} is required.`);
     };
 
-    if (isEdit) {
-        requireField(fields.charger_id, 'Charger ID');
-    }
-    requireField(fields.charger_name, 'Charger Name');
+    requireField(fields.charger_id, 'Charger ID');
     requireField(fields.station_id, 'Station');
     requireField(fields.manufacturer, 'Manufacturer');
     requireField(fields.model, 'Model');
@@ -346,8 +548,9 @@ const validatePartnerChargerForm = (fields, { isEdit = false } = {}) => {
     requireField(fields.charger_type, 'Charger Type');
     requireField(fields.connector_type, 'Connector Type');
     requireField(fields.input_supply, 'Input Supply');
-    requireField(fields.admin_status, 'Initial Administrative Status');
-    requireField(fields.installation_notes, 'Installation Notes');
+    requireField(fields.charger_status, 'Charger Status');
+    requireField(fields.charging_type, 'Charging Type');
+    requireField(fields.charging_mode, 'Charging Mode');
 
     if (fields.rated_power_kw === undefined || fields.rated_power_kw === null
         || String(fields.rated_power_kw).trim() === '') {
@@ -392,8 +595,30 @@ const validatePartnerChargerForm = (fields, { isEdit = false } = {}) => {
     if (!isBlank(fields.input_supply) && !INPUT_SUPPLY_OPTIONS.includes(fields.input_supply)) {
         errors.push('Input Supply is invalid.');
     }
-    if (!isBlank(fields.admin_status) && !CHARGER_INITIAL_ADMIN_STATUSES.includes(fields.admin_status)) {
-        errors.push('Initial Administrative Status is invalid.');
+    if (!isBlank(fields.charging_type) && !CHARGING_TYPES.includes(fields.charging_type)) {
+        errors.push('Charging Type is invalid.');
+    }
+    const chargingModeStored = normalizeChargingModeForStorage(fields.charging_mode);
+    fields.charging_mode = chargingModeStored;
+    if (!isBlank(fields.charging_mode) && !['auto', 'manual'].includes(fields.charging_mode)) {
+        errors.push('Charging Mode is invalid.');
+    }
+    if (!isBlank(fields.charger_status) && !CHARGER_STATUSES.includes(fields.charger_status)) {
+        errors.push('Charger Status is invalid.');
+    }
+
+    let unit_price_aed = null;
+    const chargingType = String(fields.charging_type || '').trim();
+    if (chargingType === 'Paid') {
+        if (fields.unit_price_aed === undefined || fields.unit_price_aed === null
+            || String(fields.unit_price_aed).trim() === '') {
+            errors.push('Unit Price is required when Charging Type is Paid.');
+        } else {
+            unit_price_aed = Number(fields.unit_price_aed);
+            if (!Number.isFinite(unit_price_aed) || unit_price_aed < 0) {
+                errors.push('Unit Price is invalid.');
+            }
+        }
     }
 
     const rated_power_kw = Number(fields.rated_power_kw);
@@ -407,6 +632,8 @@ const validatePartnerChargerForm = (fields, { isEdit = false } = {}) => {
         max_output_voltage_v: Number.isFinite(max_output_voltage_v) ? max_output_voltage_v : null,
         connector_count: Number.isInteger(connector_count) ? connector_count : null,
         installation_date: installation.sqlDate,
+        unit_price_aed: chargingType === 'Paid' ? unit_price_aed : null,
+        charging_type: chargingType || 'Free',
     };
 };
 
@@ -414,7 +641,11 @@ const chargerEnumPayload = () => ({
     chargerTypes: CHARGER_TYPES,
     connectorTypes: CONNECTOR_TYPES,
     inputSupplyOptions: INPUT_SUPPLY_OPTIONS,
-    initialAdministrativeStatuses: CHARGER_INITIAL_ADMIN_STATUSES,
+    chargingTypes: CHARGING_TYPES,
+    chargingModes: CHARGING_MODES,
+    chargerStatuses: CHARGER_STATUSES,
+    /** @deprecated use chargerStatuses */
+    initialAdministrativeStatuses: CHARGER_STATUSES,
 });
 
 async function assertStationExists(station_id, resp) {
@@ -429,7 +660,7 @@ async function assertStationExists(station_id, resp) {
     return true;
 }
 
-async function checkDuplicateStation(station_id, master_email, excludeStationId = null) {
+async function checkDuplicateStation(station_id, manager_email, excludeStationId = null) {
     let sql = `
         SELECT 'station_id' AS field FROM partner_charging_stations
         WHERE station_id = ? AND status = 1`;
@@ -442,9 +673,9 @@ async function checkDuplicateStation(station_id, master_email, excludeStationId 
 
     sql += `
         UNION
-        SELECT 'master_email' AS field FROM partner_charging_stations
-        WHERE master_email = ? AND status = 1`;
-    params.push(master_email);
+        SELECT 'manager_email' AS field FROM partner_charging_stations
+        WHERE manager_email = ? AND status = 1`;
+    params.push(manager_email);
 
     if (excludeStationId) {
         sql += ` AND station_id != ?`;
@@ -477,18 +708,7 @@ async function generateNextStationId() {
     return `ST-${String(next).padStart(2, '0')}`;
 }
 
-/** Next business id: PLX-CH-1, PLX-CH-2, … */
-async function generateNextChargerId() {
-    const row = await queryDB(
-        `SELECT MAX(CAST(SUBSTRING(charger_id, 8) AS UNSIGNED)) AS max_num
-         FROM partner_chargers
-         WHERE charger_id REGEXP '^PLX-CH-[0-9]+$'`
-    );
-    const next = (row?.max_num ?? 0) + 1;
-    return `PLX-CH-${next}`;
-}
-
-async function activeStationsForDropdown() {
+export async function activeStationsForDropdown() {
     const [rows] = await db.execute(`
         SELECT station_id, station_name
         FROM partner_charging_stations
@@ -506,15 +726,15 @@ export const partnerChargersDashboard = asyncHandler(async (req, resp) => {
     const [countRows] = await db.execute(`
         SELECT
             COUNT(*) AS total_chargers,
-            SUM(admin_status = 'Available') AS available_chargers,
-            SUM(admin_status = 'Charging') AS currently_charging,
-            SUM(admin_status = 'Faulty') AS faulty_chargers
+            SUM(charger_status = 'Available') AS available_chargers,
+            SUM(charger_status = 'Connection Pending') AS connection_pending,
+            SUM(charger_status = 'Faulty') AS faulty_chargers
         FROM partner_chargers
         WHERE status = 1
     `);
 
     const [stationRows] = await db.execute(`
-        SELECT ps.station_id, ps.station_name, ps.city, ps.admin_status,
+        SELECT ps.station_id, ps.station_name, ps.emirates, ps.station_status,
             ps.latitude, ps.longitude,
             (SELECT COUNT(*) FROM partner_chargers AS pc
                 WHERE pc.station_id = ps.station_id AND pc.status = 1) AS charger_count
@@ -527,7 +747,7 @@ export const partnerChargersDashboard = asyncHandler(async (req, resp) => {
     const counts = {
         total_chargers: Number(rawCounts.total_chargers) || 0,
         available_chargers: Number(rawCounts.available_chargers) || 0,
-        currently_charging: Number(rawCounts.currently_charging) || 0,
+        connection_pending: Number(rawCounts.connection_pending) || 0,
         faulty_chargers: Number(rawCounts.faulty_chargers) || 0,
     };
 
@@ -539,8 +759,8 @@ export const partnerChargersDashboard = asyncHandler(async (req, resp) => {
             return {
                 station_id: row.station_id,
                 station_name: row.station_name,
-                city: row.city,
-                admin_status: row.admin_status,
+                emirates: row.emirates,
+                station_status: row.station_status,
                 charger_count: Number(row.charger_count) || 0,
                 latitude: lat,
                 longitude: lng,
@@ -557,7 +777,7 @@ export const partnerChargersDashboard = asyncHandler(async (req, resp) => {
             count_cards: [
                 { key: 'total_chargers', label: 'Total Chargers', count: counts.total_chargers },
                 { key: 'available_chargers', label: 'Available Chargers', count: counts.available_chargers },
-                { key: 'currently_charging', label: 'Currently Charging', count: counts.currently_charging },
+                { key: 'connection_pending', label: 'Connection Pending', count: counts.connection_pending },
                 { key: 'faulty_chargers', label: 'Faulty Chargers', count: counts.faulty_chargers },
             ],
             stations,
@@ -575,32 +795,34 @@ export const partnerStationList = async (req, resp) => {
             page_no = 1,
             search_text = '',
             admin_status = '',
+            station_status = '',
             status = '',
             start_date = '',
             end_date = '',
         } = mergeParam(req);
-        const adminStatusFilter = String(admin_status || status || '').trim();
+        const stationStatusFilter = String(station_status || admin_status || status || '').trim();
 
         const whereField = ['ps.status'];
         const whereValue = [1];
         const whereOperator = ['='];
-        if (adminStatusFilter) {
-            whereField.push('ps.admin_status');
-            whereValue.push(adminStatusFilter);
+        if (stationStatusFilter) {
+            whereField.push('ps.station_status');
+            whereValue.push(stationStatusFilter);
             whereOperator.push('=');
         }
         appendCreatedAtRangeWhere(whereField, whereValue, whereOperator, start_date, end_date, 'ps.created_at');
 
         const params = {
             tableName: ' partner_charging_stations AS ps',
-            columns: `ps.station_id, ps.station_name, ps.city, ps.country_code, ps.contact_number, ps.admin_status,
+            columns: `ps.station_id, ps.station_name, ps.station_type, ps.emirates, ps.country_code,
+                ps.manager_contact_no, ps.station_status,
                 (SELECT COUNT(*) FROM partner_chargers AS pc
                     WHERE pc.station_id = ps.station_id AND pc.status = 1) AS charger_count`,
             sortColumn: 'ps.id',
             sortOrder: 'DESC',
             page_no,
             limit: 10,
-            liveSearchFields: ['ps.station_id', 'ps.station_name', 'ps.city'],
+            liveSearchFields: ['ps.station_id', 'ps.station_name', 'ps.emirates'],
             liveSearchTexts: [search_text, search_text, search_text],
             whereField,
             whereValue,
@@ -633,7 +855,7 @@ export const partnerStationFormData = asyncHandler(async (req, resp) => {
         if (!station) {
             return resp.json({ status: 0, code: 404, message: ['Station not found.'] });
         }
-        payload.stationData = station;
+        payload.stationData = enrichPartnerStationRecord(station);
     } else {
         payload.nextStationId = await generateNextStationId();
     }
@@ -658,7 +880,7 @@ export const partnerStationDetail = asyncHandler(async (req, resp) => {
         status: 1,
         code: 200,
         message: ['Station details fetched successfully!'],
-        data: station,
+        data: enrichPartnerStationRecord(station),
         ...stationEnumPayload(),
     });
 });
@@ -675,64 +897,51 @@ export const partnerStationAdd = asyncHandler(async (req, resp) => {
         const {
             station_name,
             station_type,
-            operator_name,
+            emirates,
             address,
-            city,
-            state_emirate,
-            country,
-            postal_code,
-            contact_person,
+            manager_name,
             country_code,
-            contact_number,
-            operating_hours,
-            admin_status,
-            description,
-            master_email,
-            master_password,
+            manager_contact_no,
+            station_status,
+            manager_email,
+            manager_password,
         } = fields;
-        const { latitude, longitude, number_of_chargers } = validation;
+        const { latitude, longitude, operating_hours } = validation;
 
         const station_id = await generateNextStationId();
 
-        const dupFields = await checkDuplicateStation(station_id, master_email);
+        const dupFields = await checkDuplicateStation(station_id, manager_email);
         if (dupFields.includes('station_id')) {
             return resp.json({ status: 0, code: 500, message: ['Could not allocate Station ID. Please try again.'] });
         }
-        if (dupFields.includes('master_email')) {
-            return resp.json({ status: 0, code: 422, message: ['Station master email already exists'] });
+        if (dupFields.includes('manager_email')) {
+            return resp.json({ status: 0, code: 422, message: ['Manager email already exists'] });
         }
 
-        const hashed = await bcrypt.hash(master_password, 10);
+        const hashed = await bcrypt.hash(manager_password, 10);
 
         const insert = await insertRecord(
             'partner_charging_stations',
             [
-                'station_id', 'station_name', 'station_type', 'operator_name', 'address', 'city',
-                'state_emirate', 'country', 'postal_code', 'latitude', 'longitude', 'contact_person',
-                'country_code', 'contact_number', 'operating_hours', 'admin_status', 'description',
-                'number_of_chargers', 'master_email', 'master_password', 'status',
+                'station_id', 'station_name', 'station_type', 'emirates', 'address',
+                'latitude', 'longitude', 'manager_name', 'manager_email', 'country_code',
+                'manager_contact_no', 'manager_password', 'operating_hours', 'station_status', 'status',
             ],
             [
                 station_id,
                 station_name,
                 station_type,
-                operator_name,
+                emirates,
                 address,
-                city,
-                state_emirate,
-                country,
-                postal_code || null,
                 latitude,
                 longitude,
-                contact_person,
+                manager_name,
+                manager_email,
                 country_code,
-                contact_number,
-                operating_hours,
-                admin_status,
-                description,
-                number_of_chargers,
-                master_email,
+                manager_contact_no,
                 hashed,
+                operating_hours,
+                station_status,
                 1,
             ]
         );
@@ -766,22 +975,16 @@ export const partnerStationEdit = asyncHandler(async (req, resp) => {
             station_id,
             station_name,
             station_type,
-            operator_name,
+            emirates,
             address,
-            city,
-            state_emirate,
-            country,
-            postal_code,
-            contact_person,
+            manager_name,
             country_code,
-            contact_number,
-            operating_hours,
-            admin_status,
-            description,
-            master_email,
-            master_password,
+            manager_contact_no,
+            station_status,
+            manager_email,
+            manager_password,
         } = fields;
-        const { latitude, longitude, number_of_chargers } = validation;
+        const { latitude, longitude, operating_hours } = validation;
 
         const exists = await queryDB(
             `SELECT id FROM partner_charging_stations WHERE station_id = ? AND status = 1`,
@@ -789,34 +992,28 @@ export const partnerStationEdit = asyncHandler(async (req, resp) => {
         );
         if (!exists) return resp.json({ status: 0, code: 404, message: ['Station not found.'] });
 
-        const dupFields = await checkDuplicateStation(station_id, master_email, station_id);
-        if (dupFields.includes('master_email')) {
-            return resp.json({ status: 0, code: 422, message: ['Station master email already exists'] });
+        const dupFields = await checkDuplicateStation(station_id, manager_email, station_id);
+        if (dupFields.includes('manager_email')) {
+            return resp.json({ status: 0, code: 422, message: ['Manager email already exists'] });
         }
 
         const updates = {
             station_name,
             station_type,
-            operator_name,
+            emirates,
             address,
-            city,
-            state_emirate,
-            country,
-            postal_code: postal_code || null,
             latitude,
             longitude,
-            contact_person,
+            manager_name,
             country_code,
-            contact_number,
+            manager_contact_no,
             operating_hours,
-            admin_status,
-            description,
-            number_of_chargers,
-            master_email,
+            station_status,
+            manager_email,
         };
 
-        if (!isBlank(master_password)) {
-            updates.master_password = await bcrypt.hash(master_password, 10);
+        if (!isBlank(manager_password)) {
+            updates.manager_password = await bcrypt.hash(manager_password, 10);
         }
 
         await updateRecord('partner_charging_stations', updates, ['station_id'], [station_id]);
@@ -852,14 +1049,16 @@ export const partnerChargerList = async (req, resp) => {
             start_date = '',
             end_date = '',
         } = mergeParam(req);
-        const adminStatusFilter = String(admin_status || status || '').trim();
+        const chargerStatusFilter = String(
+            req.body.charger_status || admin_status || status || ''
+        ).trim();
 
         const whereField = ['pc.status'];
         const whereValue = [1];
         const whereOperator = ['='];
-        if (adminStatusFilter) {
-            whereField.push('pc.admin_status');
-            whereValue.push(adminStatusFilter);
+        if (chargerStatusFilter) {
+            whereField.push('pc.charger_status');
+            whereValue.push(chargerStatusFilter);
             whereOperator.push('=');
         }
         appendCreatedAtRangeWhere(whereField, whereValue, whereOperator, start_date, end_date, 'pc.created_at');
@@ -868,14 +1067,14 @@ export const partnerChargerList = async (req, resp) => {
             tableName: ' partner_chargers AS pc',
             joinTable: ' partner_charging_stations AS ps',
             joinCondition: 'pc.station_id = ps.station_id AND ps.status = 1',
-            columns: `pc.charger_id, pc.charger_name, ps.station_name, pc.station_id,
+            columns: `pc.charger_id, ps.station_name, pc.station_id, pc.charging_type, pc.unit_price_aed,
                 pc.charger_type, pc.rated_power_kw, pc.connector_type, pc.connector_count,
-                pc.admin_status`,
+                pc.charger_status, pc.online`,
             sortColumn: 'pc.id',
             sortOrder: 'DESC',
             page_no,
             limit: 10,
-            liveSearchFields: ['pc.charger_id', 'pc.charger_name', 'ps.station_name'],
+            liveSearchFields: ['pc.charger_id', 'ps.station_name', 'pc.serial_number'],
             liveSearchTexts: [search_text, search_text, search_text],
             whereField,
             whereValue,
@@ -912,8 +1111,6 @@ export const partnerChargerFormData = asyncHandler(async (req, resp) => {
             return resp.json({ status: 0, code: 404, message: ['Charger not found.'] });
         }
         payload.chargerData = charger;
-    } else {
-        payload.nextChargerId = await generateNextChargerId();
     }
 
     return resp.json({ status: 1, code: 200, message: ['Charger form data fetched successfully!'], data: payload });
@@ -925,11 +1122,11 @@ export const partnerChargerDetail = asyncHandler(async (req, resp) => {
     if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
 
     const charger = await queryDB(
-        `SELECT pc.charger_id, pc.charger_name, pc.station_id, ps.station_name,
-            pc.manufacturer, pc.model, pc.serial_number, pc.charger_type, pc.rated_power_kw,
-            pc.connector_type, pc.connector_count, pc.input_supply, pc.max_output_voltage_v,
-            ${formatDateInQuery(['pc.installation_date'])}, pc.sim_iccid, pc.imei, pc.installation_notes,
-            pc.admin_status, pc.status,
+        `SELECT pc.charger_id, pc.station_id, ps.station_name, pc.rated_power_kw, pc.charging_type,
+            pc.unit_price_aed, pc.charging_mode, pc.manufacturer, pc.model, pc.serial_number,
+            pc.charger_type, pc.connector_type, pc.connector_count, pc.input_supply,
+            pc.max_output_voltage_v, ${formatDateInQuery(['pc.installation_date'])},
+            pc.sim_iccid, pc.imei, pc.charger_status, pc.online, pc.status,
             ${formatDateTimeInQuery(['pc.created_at', 'pc.updated_at'])}
          FROM partner_chargers AS pc
          LEFT JOIN partner_charging_stations AS ps ON ps.station_id = pc.station_id AND ps.status = 1
@@ -956,11 +1153,7 @@ export const partnerChargerAdd = asyncHandler(async (req, resp) => {
             return resp.json({ status: 0, code: 422, message: validation.errors });
         }
 
-        const charger_id = await generateNextChargerId();
-
-        const {
-            charger_name,
-            station_id,
+        const { charger_id, station_id,
             manufacturer,
             model,
             serial_number,
@@ -969,34 +1162,43 @@ export const partnerChargerAdd = asyncHandler(async (req, resp) => {
             input_supply,
             sim_iccid,
             imei,
-            installation_notes,
-            admin_status,
+            charging_mode,
+            charger_status,
         } = fields;
-        const { rated_power_kw, max_output_voltage_v, connector_count, installation_date } = validation;
+        const {
+            rated_power_kw,
+            max_output_voltage_v,
+            connector_count,
+            installation_date,
+            unit_price_aed,
+            charging_type,
+        } = validation;
 
         if (!(await assertStationExists(station_id, resp))) return;
 
         if (await checkDuplicateCharger(charger_id)) {
-            return resp.json({ status: 0, code: 500, message: ['Could not allocate Charger ID. Please try again.'] });
+            return resp.json({ status: 0, code: 422, message: ['Charger ID already exists.'] });
         }
 
         const insert = await insertRecord(
             'partner_chargers',
             [
-                'charger_id', 'charger_name', 'station_id', 'manufacturer', 'model', 'serial_number',
-                'charger_type', 'rated_power_kw', 'connector_type', 'connector_count', 'input_supply',
-                'max_output_voltage_v', 'installation_date', 'sim_iccid', 'imei', 'installation_notes',
-                'admin_status', 'status',
+                'charger_id', 'station_id', 'rated_power_kw', 'charging_type', 'unit_price_aed', 'charging_mode',
+                'manufacturer', 'model', 'serial_number', 'charger_type', 'connector_type', 'connector_count',
+                'input_supply', 'max_output_voltage_v', 'installation_date', 'sim_iccid', 'imei',
+                'charger_status', 'status',
             ],
             [
                 charger_id,
-                charger_name,
                 station_id,
+                rated_power_kw,
+                charging_type,
+                unit_price_aed,
+                charging_mode,
                 manufacturer,
                 model,
                 serial_number,
                 charger_type,
-                rated_power_kw,
                 connector_type,
                 connector_count,
                 input_supply,
@@ -1004,8 +1206,7 @@ export const partnerChargerAdd = asyncHandler(async (req, resp) => {
                 installation_date,
                 sim_iccid,
                 imei,
-                installation_notes,
-                admin_status,
+                charger_status,
                 1,
             ]
         );
@@ -1037,7 +1238,6 @@ export const partnerChargerEdit = asyncHandler(async (req, resp) => {
 
         const {
             charger_id,
-            charger_name,
             station_id,
             manufacturer,
             model,
@@ -1047,10 +1247,17 @@ export const partnerChargerEdit = asyncHandler(async (req, resp) => {
             input_supply,
             sim_iccid,
             imei,
-            installation_notes,
-            admin_status,
+            charging_mode,
+            charger_status,
         } = fields;
-        const { rated_power_kw, max_output_voltage_v, connector_count, installation_date } = validation;
+        const {
+            rated_power_kw,
+            max_output_voltage_v,
+            connector_count,
+            installation_date,
+            unit_price_aed,
+            charging_type,
+        } = validation;
 
         const exists = await queryDB(
             `SELECT id FROM partner_chargers WHERE charger_id = ? AND status = 1`,
@@ -1061,13 +1268,15 @@ export const partnerChargerEdit = asyncHandler(async (req, resp) => {
         if (!(await assertStationExists(station_id, resp))) return;
 
         const updates = {
-            charger_name,
             station_id,
+            rated_power_kw,
+            charging_type,
+            unit_price_aed,
+            charging_mode,
             manufacturer,
             model,
             serial_number,
             charger_type,
-            rated_power_kw,
             connector_type,
             connector_count,
             input_supply,
@@ -1075,8 +1284,7 @@ export const partnerChargerEdit = asyncHandler(async (req, resp) => {
             installation_date,
             sim_iccid,
             imei,
-            installation_notes,
-            admin_status,
+            charger_status,
         };
 
         await updateRecord('partner_chargers', updates, ['charger_id'], [charger_id]);
@@ -1086,4 +1294,25 @@ export const partnerChargerEdit = asyncHandler(async (req, resp) => {
         console.error('partnerChargerEdit:', error);
         tryCatchErrorHandler(req.originalUrl, error, resp);
     }
+});
+
+/** Chargers at a station — customer add/edit multi-select dropdown */
+export const partnerChargersByStation = asyncHandler(async (req, resp) => {
+    const { station_id } = mergeParam(req);
+    const { isValid, errors } = validateFields(mergeParam(req), { station_id: ['required'] });
+    if (!isValid) return resp.json({ status: 0, code: 422, message: errors });
+
+    const [rows] = await db.execute(`
+        SELECT charger_id AS value, charger_id AS label, charger_status, rated_power_kw, charging_type
+        FROM partner_chargers
+        WHERE station_id = ? AND status = 1
+        ORDER BY charger_id ASC
+    `, [station_id]);
+
+    return resp.json({
+        status: 1,
+        code: 200,
+        message: ['Chargers fetched successfully!'],
+        data: rows,
+    });
 });

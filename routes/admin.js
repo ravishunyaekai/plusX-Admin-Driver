@@ -59,7 +59,16 @@ import {
     partnerChargerFormData,
     partnerChargerAdd,
     partnerChargerEdit,
+    partnerChargersByStation,
 } from '../controller/admin/PartnerChargerController.js';
+
+import {
+    partnerCustomerFormData,
+    partnerCustomerList,
+    partnerCustomerDetail,
+    partnerCustomerAdd,
+    partnerCustomerEdit,
+} from '../controller/admin/PartnerChargerCustomerController.js';
 
 import {
     partnerChargerSessionList,
@@ -331,6 +340,12 @@ const adminRoutes = [
     { method: 'post', path: '/partner-charger-form-data', handler: partnerChargerFormData },
     { method: 'post', path: '/partner-charger-add',       handler: partnerChargerAdd },
     { method: 'post', path: '/partner-charger-edit',      handler: partnerChargerEdit },
+    { method: 'post', path: '/partner-chargers-by-station', handler: partnerChargersByStation },
+    { method: 'post', path: '/partner-customer-form-data', handler: partnerCustomerFormData },
+    { method: 'post', path: '/partner-customer-list',    handler: partnerCustomerList },
+    { method: 'post', path: '/partner-customer-details', handler: partnerCustomerDetail },
+    { method: 'post', path: '/partner-customer-add',     handler: partnerCustomerAdd },
+    { method: 'post', path: '/partner-customer-edit',    handler: partnerCustomerEdit },
     { method: 'post', path: '/partner-session-list',    handler: partnerChargerSessionList },
     { method: 'post', path: '/partner-session-details', handler: partnerChargerSessionDetail },
     { method: 'post', path: '/partner-alert-list',      handler: partnerChargerAlertList },

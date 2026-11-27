@@ -8,6 +8,11 @@ import { resolvePartnerListCreatedAtRange } from './PartnerChargerController.js'
 
 const SESSION_ALERT_ERROR_PREDICATE = `sh.error_code IS NOT NULL AND TRIM(sh.error_code) <> ''`;
 
+const sessionHistoryStationJoin = `
+    LEFT JOIN partner_chargers AS pc ON pc.charger_id = sh.charger_id AND pc.status = 1
+    LEFT JOIN partner_charging_stations AS ps ON ps.station_id = pc.station_id AND ps.status = 1
+`;
+
 /** Alerts = session history rows where IoT set a human-readable error_code (fault message). */
 export const mapSessionHistoryAlertRow = (row) => ({
     alert_id: String(row.id),
@@ -35,15 +40,13 @@ export async function listPartnerSessionHistoryAlerts({
     end_date = '',
     limit = 10,
 } = {}) {
-    await backfillPartnerSessionStations();
-
     const pageSize = Math.max(Number(limit) || 10, 1);
     const offset = (Math.max(Number(page_no), 1) - 1) * pageSize;
     const params = [];
     let where = ` WHERE ${SESSION_ALERT_ERROR_PREDICATE} `;
 
     if (station_id) {
-        where += ' AND sh.station_id = ?';
+        where += ' AND pc.station_id = ?';
         params.push(String(station_id).trim());
     }
     if (status) {
@@ -53,7 +56,7 @@ export async function listPartnerSessionHistoryAlerts({
     if (search_text) {
         const like = `%${String(search_text).trim()}%`;
         where += ` AND (
-            sh.error_code LIKE ? OR sh.charger_id LIKE ? OR sh.station_name LIKE ?
+            sh.error_code LIKE ? OR sh.charger_id LIKE ? OR ps.station_name LIKE ?
             OR sh.session_id LIKE ? OR CONCAT('S-', sh.session_id) LIKE ?
         )`;
         params.push(like, like, like, like, like);
@@ -67,6 +70,7 @@ export async function listPartnerSessionHistoryAlerts({
     const countSql = `
         SELECT COUNT(*) AS total
         FROM partner_charger_session_history AS sh
+        ${sessionHistoryStationJoin}
         ${where}
     `;
     const [[{ total }]] = await db.execute(countSql, params);
@@ -74,9 +78,10 @@ export async function listPartnerSessionHistoryAlerts({
     const listSql = `
         SELECT
             sh.id, sh.charger_id, sh.session_id, sh.connector_id, sh.error_code, sh.status,
-            sh.station_id, sh.station_name,
+            pc.station_id, ps.station_name,
             ${formatDateTimeInQuery(['sh.created_at'])}
         FROM partner_charger_session_history AS sh
+        ${sessionHistoryStationJoin}
         ${where}
         ORDER BY sh.created_at DESC
         LIMIT ${pageSize} OFFSET ${offset}
@@ -92,14 +97,13 @@ export async function listPartnerSessionHistoryAlerts({
 }
 
 export async function getPartnerSessionHistoryAlertById(alertId, { station_id = '' } = {}) {
-    await backfillPartnerSessionStations();
     const id = Number(alertId);
     if (!Number.isFinite(id) || id <= 0) return null;
 
     const params = [id];
     let where = ` WHERE sh.id = ? AND ${SESSION_ALERT_ERROR_PREDICATE} `;
     if (station_id) {
-        where += ' AND sh.station_id = ?';
+        where += ' AND pc.station_id = ?';
         params.push(String(station_id).trim());
     }
 
@@ -107,9 +111,10 @@ export async function getPartnerSessionHistoryAlertById(alertId, { station_id = 
         `
         SELECT
             sh.id, sh.charger_id, sh.session_id, sh.connector_id, sh.error_code, sh.status,
-            sh.station_id, sh.station_name,
+            pc.station_id, ps.station_name,
             ${formatDateTimeInQuery(['sh.created_at'])}
         FROM partner_charger_session_history AS sh
+        ${sessionHistoryStationJoin}
         ${where}
         LIMIT 1
         `,
@@ -171,29 +176,19 @@ export async function resolveSessionEnergyKwh(chargerId, startRaw, endRaw) {
     return Number.isFinite(secondLast) ? secondLast : values[values.length - 1];
 }
 
-/** PlusX: fill station on IoT session rows from partner_chargers. */
-export async function backfillPartnerSessionStations() {
-    await db.execute(`
-        UPDATE partner_charger_session_history AS sh
-        INNER JOIN partner_chargers AS pc ON pc.charger_id = sh.charger_id AND pc.status = 1
-        INNER JOIN partner_charging_stations AS ps ON ps.station_id = pc.station_id AND ps.status = 1
-        SET sh.station_id = ps.station_id,
-            sh.station_name = ps.station_name
-        WHERE sh.station_id IS NULL OR sh.station_name IS NULL
-    `);
-}
-
 export const sessionGroupSubquery = `
     SELECT
-        charger_id,
-        session_id,
-        MAX(station_id) AS station_id,
-        MAX(station_name) AS station_name,
-        MIN(created_at) AS start_time,
-        MAX(created_at) AS end_time,
-        TIMESTAMPDIFF(SECOND, MIN(created_at), MAX(created_at)) AS duration_seconds
-    FROM partner_charger_session_history
-    GROUP BY charger_id, session_id
+        sh.charger_id,
+        sh.session_id,
+        MAX(pc.station_id) AS station_id,
+        MAX(ps.station_name) AS station_name,
+        MIN(sh.created_at) AS start_time,
+        MAX(sh.created_at) AS end_time,
+        TIMESTAMPDIFF(SECOND, MIN(sh.created_at), MAX(sh.created_at)) AS duration_seconds
+    FROM partner_charger_session_history AS sh
+    LEFT JOIN partner_chargers AS pc ON pc.charger_id = sh.charger_id AND pc.status = 1
+    LEFT JOIN partner_charging_stations AS ps ON ps.station_id = pc.station_id AND ps.status = 1
+    GROUP BY sh.charger_id, sh.session_id
 `;
 
 export const latestStatusJoin = `
@@ -210,8 +205,6 @@ export const latestStatusJoin = `
 
 export const partnerChargerSessionList = asyncHandler(async (req, resp) => {
     try {
-        await backfillPartnerSessionStations();
-
         const {
             page_no = 1,
             search_text = '',
@@ -304,8 +297,6 @@ export const partnerChargerSessionList = asyncHandler(async (req, resp) => {
 
 export const partnerChargerSessionDetail = asyncHandler(async (req, resp) => {
     try {
-        await backfillPartnerSessionStations();
-
         const body = mergeParam(req);
         let { charger_id, session_id, display_session_id } = body;
 
@@ -326,17 +317,19 @@ export const partnerChargerSessionDetail = asyncHandler(async (req, resp) => {
         const summary = await queryDB(
             `
             SELECT
-                charger_id,
-                session_id,
-                CONCAT('S-', session_id) AS display_session_id,
-                MAX(station_id) AS station_id,
-                MAX(station_name) AS station_name,
-                MIN(created_at) AS start_time_raw,
-                MAX(created_at) AS end_time_raw,
-                TIMESTAMPDIFF(SECOND, MIN(created_at), MAX(created_at)) AS duration_seconds
-            FROM partner_charger_session_history
-            WHERE charger_id = ? AND session_id = ?
-            GROUP BY charger_id, session_id
+                sh.charger_id,
+                sh.session_id,
+                CONCAT('S-', sh.session_id) AS display_session_id,
+                MAX(pc.station_id) AS station_id,
+                MAX(ps.station_name) AS station_name,
+                MIN(sh.created_at) AS start_time_raw,
+                MAX(sh.created_at) AS end_time_raw,
+                TIMESTAMPDIFF(SECOND, MIN(sh.created_at), MAX(sh.created_at)) AS duration_seconds
+            FROM partner_charger_session_history AS sh
+            LEFT JOIN partner_chargers AS pc ON pc.charger_id = sh.charger_id AND pc.status = 1
+            LEFT JOIN partner_charging_stations AS ps ON ps.station_id = pc.station_id AND ps.status = 1
+            WHERE sh.charger_id = ? AND sh.session_id = ?
+            GROUP BY sh.charger_id, sh.session_id
             `,
             [charger_id, session_id]
         );

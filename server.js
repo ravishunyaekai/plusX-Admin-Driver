@@ -55,7 +55,7 @@ app.use('/admin', adminRoutes);
 app.use('/driver', driverRoutes);
 // Community manager APIs (login, dashboard, community details, residents — scoped by community_id)
 app.use('/community', communityRoutes);
-// Station Master portal APIs (credentials on partner_charging_stations.master_*)
+// Station Master portal APIs (credentials on partner_charging_stations.manager_*)
 app.use('/partner', partnerStationRoutes);
 
 // ---------------------------------------------------------------------------
